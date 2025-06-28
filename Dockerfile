@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:22-alpine AS build
 
 WORKDIR /app
 
@@ -11,6 +11,13 @@ RUN sed -i "s|import adapter from '@sveltejs/adapter-auto';|import adapter from 
 
 RUN npm run build
 
+FROM gcr.io/distroless/nodejs22-debian12:nonroot
+
+COPY --from=build /app/build /app/build
+COPY --from=build /app/node_modules /app/node_modules
+
+WORKDIR /app
+
 EXPOSE 3000
 
-CMD ["node", "build"]
+CMD ["build"]

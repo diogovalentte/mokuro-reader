@@ -1,9 +1,7 @@
 name: Create and publish a container image
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -13,6 +11,9 @@ jobs:
   build-and-publish:
     runs-on: ubuntu-latest
     steps:
+      - name: Set short SHA
+        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
+  
       - name: Check out
         uses: actions/checkout@v4
 
@@ -42,16 +43,21 @@ jobs:
           push: true
           provenance: false
           platforms: linux/amd64
-          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}
 
-      - name: Set up Tailscale
-        uses: tailscale/github-action@v2
+      - name: Create tag using GitHub API
+        uses: actions/github-script@v7
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
+          script: |
+            const tag = process.env.SHORT_SHA;
+            const sha = context.sha;
 
-      - name: Update my portainer stack xD
-        run: |
-          python3 .github/workflows/update_portainer_stack.py ${{ secrets.PORTAINER_URL }} ${{ secrets.PORTAINER_USERNAME }} ${{ secrets.PORTAINER_PASSWORD }} ${{ secrets.PORTAINER_STACK_NAME }} ${{ github.repository_owner }} ${{ secrets.GH_TOKEN }}
+            await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `refs/tags/${tag}`,
+              sha: sha
+            });

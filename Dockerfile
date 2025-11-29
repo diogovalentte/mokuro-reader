@@ -5,7 +5,7 @@ WORKDIR /app
 COPY . .
 
 RUN npm install && \
-    npm i -D @sveltejs/adapter-node@1.3.1
+    npm i -D @sveltejs/adapter-node@4.0.0
 
 RUN sed -i "s|import adapter from '@sveltejs/adapter-auto';|import adapter from '@sveltejs/adapter-node';|" svelte.config.js
 

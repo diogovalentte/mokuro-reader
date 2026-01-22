@@ -38,7 +38,7 @@
 
 ### Fixed
 
-- **Large volume cloud backup** - Fixed "Array buffer allocation failed" error when backing up or exporting volumes >1GB ([ZXY101#129](https://github.com/ZXY101/mokuro-reader/issues/129))
+- **Large volume cloud backup** - Fixed "Array buffer allocation failed" error when backing up or exporting volumes >1GB ([#129](https://github.com/Gnathonic/mokuro-reader/issues/129))
 - **Import modal stuck on multiple drops** - Fixed import preparation modal not closing properly when dropping multiple archives
 
 ## [1.2.0] - 2025-01-05

@@ -391,17 +391,7 @@ git worktree add ../mokuro-reader-worktrees/<branch-name> <branch-name>
 
 **Don't auto-push during active development**: If `npm run dev` or `npm run preview` is running, the user is actively iterating on changes. Only commit locally and wait for explicit instruction to push. This keeps the commit history clean and allows for squashing/amending before pushing.
 
-**Always use rebase when merging PRs to upstream**: When merging a PR from this fork to `ZXY101/mokuro-reader`, always use `--rebase`:
-
-```bash
-gh pr merge <PR_NUMBER> --repo ZXY101/mokuro-reader --rebase
-```
-
-This keeps commit SHAs identical between repos and avoids the fork falling "behind" by a merge commit. After merging, sync local main:
-
-```bash
-git fetch upstream && git reset --hard upstream/main && git push origin main
-```
+**Branch workflow**: Development happens on `develop`. Merge into `main` for releases.
 
 ## Known Issues and Considerations
 

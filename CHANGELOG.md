@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.5.8] - 2026-05-16
+
+### Added
+
+- **`{cover}` Anki template variable** - Include the volume cover image in Anki cards alongside `{image}`, targeting a separate field (#205)
+- **Reverse alphabetical volume sort** - Sort volumes Z–A in addition to A–Z
+- **Page index DOM attribute** - The reader exposes `data-page-index` on each page so extensions (e.g. GSM stats) can read the current page without traversing styles (#207)
+
+### Fixed
+
+- **Swipe-to-flip while panning a zoomed page** - A vigorous pan past the edge of a zoomed page could silently flip the page. The swipe now only flips when the relevant edge was already visible at touch start (#186)
+- **WebP thumbnails for archive-extracted pages** - Thumbnails from CBZ/ZIP imports were silently falling back to JPEG because extracted `File` objects had no mime type. Generation is now always WebP regardless of source
+- **MEGA duplicate series/root folders under parallel uploads** - Folder creation is now serialized per path, preventing duplicates when multiple uploads race
+- **MEGA folder deduplication** - The deduplicator now runs for MEGA (previously Drive-only) and loops to convergence so late-pass leftovers no longer remain
+
 ## [1.5.7] - 2026-03-20
 
 ### Fixed

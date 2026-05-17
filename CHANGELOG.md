@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.9] - 2026-05-17
+
+### Fixed
+
+- **Migaku popup scroll eaten by reader** - The reader's window-level wheel listener intercepted every wheel and blocked scrolling inside Migaku/Yomitan popup overlays. Wheel events are now only intercepted inside the reader content (#214)
+- **Migaku sentence capture stopped at line breaks** - "Capture sentence" / "read sentence" only saw the hovered OCR line because `<br/>` separators were treated as sentence boundaries. OCR lines now use a CSS-generated newline so DOM walkers see one continuous text node per speech bubble. Yomitan behaviour unchanged (#214)
+
 ## [1.5.8] - 2026-05-16
 
 ### Added

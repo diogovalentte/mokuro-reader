@@ -553,7 +553,7 @@
     {contenteditable}
   >
     <p>
-      {#each lines as line, i}{line}{#if i < lines.length - 1}<br />{/if}{/each}
+      {#each lines as line}<span class="ocr-line">{line}</span>{/each}
     </p>
   </div>
 {/each}
@@ -623,5 +623,13 @@
 
   .textBox.originalMode p {
     white-space: nowrap;
+  }
+
+  /* Use CSS-generated newline instead of <br/> so DOM walkers
+     (Migaku/Yomitan) see one continuous text node per textbox
+     and don't treat line breaks as sentence boundaries. */
+  .textBox .ocr-line:not(:last-child)::after {
+    content: '\A';
+    white-space: pre;
   }
 </style>

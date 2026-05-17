@@ -542,20 +542,19 @@
     }
   }
 
-  // Wheel handler wrapper that excludes settings drawer, popovers, and modals
+  // Wheel handler wrapper.
+  // We only intercept wheel events that originate inside our reader content
+  // (the Panzoom wrapper marked with data-mokuro-reader). Anything else —
+  // settings drawer, popovers, dialogs, and extension overlays like Migaku
+  // and Yomitan popups (which inject into <body>, often inside shadow DOM) —
+  // is left alone so the browser's default scroll handling can apply.
   function handleWheelEvent(e: WheelEvent) {
     // In continuous scroll mode, let ContinuousScrollReader handle wheel events
     if ($settings.continuousScroll) return;
 
     const target = e.target as HTMLElement;
-    // Don't capture wheel events from settings drawer, popovers, or modals
-    if (
-      target.closest('#settings') ||
-      target.closest('[data-popover]') ||
-      target.closest('dialog')
-    ) {
-      return;
-    }
+    if (!target.closest('[data-mokuro-reader]')) return;
+
     panzoomHandleWheel(e);
   }
 

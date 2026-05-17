@@ -11,6 +11,7 @@
     zoomDefault,
     zoomDefaultWithLayoutWait,
     zoomFitToScreen,
+    getHorizontalPanEdgeState,
     handleWheel as panzoomHandleWheel
   } from '$lib/panzoom';
   import {
@@ -37,8 +38,10 @@
     getCardAgeInMin,
     extractFieldValues,
     getModelConfig,
+    blobToBase64,
     type VolumeMetadata
   } from '$lib/anki-connect';
+  import { db } from '$lib/catalog/db';
   import { showSnackbar } from '$lib/util';
   import {
     BackwardStepSolid,
@@ -462,6 +465,12 @@
   let startY = 0;
   let touchStart: Date;
   let lastMultiTouchTime = 0; // Timestamp of last multi-touch event
+  // Pan-edge state captured at the start of a single-finger gesture.
+  // When the user begins a gesture while more content is hidden in a given
+  // direction, we treat any horizontal motion in that direction as a pan
+  // rather than a page-flip swipe (issue #186).
+  let canRevealLeftAtStart = false;
+  let canRevealRightAtStart = false;
 
   function handleTouchStart(event: TouchEvent) {
     if (!$settings.mobile) return;
@@ -473,6 +482,13 @@
     touchStart = new Date();
     startX = clientX;
     startY = clientY;
+
+    // Snapshot how much pannable content exists in each horizontal direction
+    // right now, so that a subsequent swipe can be classified as either a
+    // page-flip (only when already at the relevant edge) or an intra-page pan.
+    const edgeState = getHorizontalPanEdgeState();
+    canRevealLeftAtStart = edgeState.canRevealLeft;
+    canRevealRightAtStart = edgeState.canRevealRight;
   }
 
   function handlePointerUp(event: TouchEvent) {
@@ -502,9 +518,12 @@
     if (isSwipe && touchDuration < 500) {
       const swipeThreshold = ($settings.swipeThreshold / 100) * window.innerWidth;
 
-      if (distanceX > swipeThreshold) {
+      // Only flip if the user was already at the relevant pan edge when the
+      // gesture began. Otherwise the gesture is an intra-page pan and we
+      // leave page navigation alone (issue #186).
+      if (distanceX > swipeThreshold && !canRevealLeftAtStart) {
         left(event, true);
-      } else if (distanceX < -swipeThreshold) {
+      } else if (distanceX < -swipeThreshold && !canRevealRightAtStart) {
         right(event, true);
       }
     }
@@ -966,6 +985,19 @@
       seriesTitle: volume.series_title,
       volumeTitle: volume.volume_title
     };
+
+    // Load cover image for {cover} template support
+    try {
+      const dbVolume = await db.volumes.get(volume.volume_uuid);
+      if (dbVolume?.thumbnail) {
+        const coverImage = await blobToBase64(dbVolume.thumbnail);
+        if (coverImage) {
+          volumeMetadata.coverImage = coverImage;
+        }
+      }
+    } catch {
+      // Continue without cover image
+    }
 
     // Use pre-captured image URL (captured at right-click time for reliability)
     const url = contextMenuData.imageUrl;

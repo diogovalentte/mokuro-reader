@@ -1279,6 +1279,8 @@
     volumeUuid={volume.volume_uuid}
     page1={pages[index]}
     page2={!useSinglePage ? pages[index + 1] : undefined}
+    page1Number={index + 1}
+    page2Number={!useSinglePage ? index + 2 : undefined}
     visible={overlaysVisible}
   />
   <SettingsButton visible={overlaysVisible} />

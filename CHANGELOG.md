@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.10] - 2026-05-22
+
+### Fixed
+
+- **QuickActions "+" ignored Anki card mode** - The QuickActions "+" → image → text-box picker flow always opened the "Create new card" modal, ignoring the `cardMode` setting. It now uses the same update/create dispatch logic as the double-click and context-menu flows, including the 5-minute window check for updates. The `{page_num}` template variable also resolves correctly in this flow (#216)
+- **Page swipes during Anki modal** - The reader no longer flips pages while the Anki Update/Create Card modal is open, preventing accidental flips when dragging the crop box on touchscreens (#189)
+
 ## [1.5.9] - 2026-05-17
 
 ### Fixed

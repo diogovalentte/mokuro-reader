@@ -91,17 +91,17 @@ The preset list is intentionally short. It can be extended later by adding entri
 
 ## Storage & State
 
-Theme is an app/device-level concern → stored **global** in `miscSettings` (alongside `galleryLayout`, `turboMode`), **not** per-profile (diverges from PR #86 which put it per-profile; per-profile would change theme when switching profiles and sync a device preference across devices, which is wrong).
+Theme is stored **per-profile** in the `Settings` type (`src/lib/settings/settings.ts`), so a user's chosen theme and custom palette are **saved with their profile and travel between devices via profile sync**. This aligns with PR #86's placement, and keeps theme in the same object as the reader `backgroundColor` it migrates (same-scope migration).
 
 ```ts
-// src/lib/settings/misc.ts — MiscSettings additions
+// src/lib/settings/settings.ts — Settings additions
 theme: string;            // preset id, default 'dark'
 customTheme: ThemeTokens & { base: ThemeBase }; // edited by Custom mode
 ```
 
-Defaults: `theme: 'dark'`, `customTheme` seeded from the E-ink preset (a sensible neutral starting point for editing).
+Defaults (in `defaultSettings`): `theme: 'dark'`, `customTheme` seeded from the E-ink preset (a neutral starting point for editing). These flow through the existing three-tier resolution (global default → profile → volume) and through profile import/export + cloud sync automatically, since they are ordinary `Settings` fields. Theme is resolved from the active profile's settings; switching profiles switches theme.
 
-A derived store resolves the active `Theme`: if `theme === 'custom'`, build from `customTheme`; else look up the preset table.
+A derived store (off `currentSettings`) resolves the active `Theme`: if `theme === 'custom'`, build from `customTheme`; else look up the preset table.
 
 ## Application
 
@@ -150,7 +150,7 @@ The existing **night-mode grayscale filter** (`NightModeFilter.svelte`, SVG filt
 
 ## Files (anticipated)
 
-- `src/lib/settings/misc.ts` — `theme`, `customTheme`, defaults, migration hook.
+- `src/lib/settings/settings.ts` — `theme`, `customTheme` in `Settings`, `defaultSettings`, profile migration hook (alongside the existing `migrateProfile` logic that already touches `backgroundColor`/`nightModeSchedule`).
 - `src/lib/settings/theme.ts` (new) — `Theme`/`ThemeTokens` types, preset table, active-theme derived store, ramp-derivation helper.
 - `src/lib/components/ThemeController.svelte` (new) — applies base class + variables.
 - `src/lib/components/Settings/AppearanceSettings.svelte` (new) — UI.

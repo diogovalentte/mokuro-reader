@@ -1,5 +1,11 @@
 <script lang="ts">
   import { AccordionItem, Label } from 'flowbite-svelte';
+  import {
+    BookmarkSolid,
+    DownloadSolid,
+    ArrowsRepeatOutline,
+    TrashBinSolid
+  } from 'flowbite-svelte-icons';
   import { get } from 'svelte/store';
   import { settings, updateSetting, PRESETS, type ThemeTokens } from '$lib/settings';
 
@@ -56,19 +62,22 @@
       {#each swatches as sw (sw.id)}
         <button
           type="button"
-          class="relative z-10 flex items-center gap-2 rounded-lg border-2 p-2 text-left text-sm"
+          class="relative z-10 flex flex-col items-start gap-1.5 rounded-lg border-2 p-2 text-left text-sm"
           style:background-color={sw.tokens.surface}
           style:color={sw.tokens.text}
           style:border-color={current === sw.id ? sw.tokens.accent : sw.tokens.border}
           style:box-shadow={current === sw.id ? `0 0 0 2px ${sw.tokens.accent}` : undefined}
           onclick={() => (sw.id === 'custom' ? editCustom() : selectPreset(sw.id))}
         >
-          <span
-            class="h-4 w-4 shrink-0 rounded-full"
-            style:background-color={sw.tokens.accent}
-            style:border="1px solid {sw.tokens.border}"
-          ></span>
-          <span>{sw.name}</span>
+          <span class="font-medium">{sw.name}</span>
+          <!-- A token-tinted icon per palette role: accent, download (secondary),
+               sync (success), delete (danger) — a glance at the theme's colours. -->
+          <span class="flex gap-2">
+            <span style:color={sw.tokens.accent}><BookmarkSolid class="h-4 w-4" /></span>
+            <span style:color={sw.tokens.secondary}><DownloadSolid class="h-4 w-4" /></span>
+            <span style:color={sw.tokens.success}><ArrowsRepeatOutline class="h-4 w-4" /></span>
+            <span style:color={sw.tokens.danger}><TrashBinSolid class="h-4 w-4" /></span>
+          </span>
         </button>
       {/each}
     </div>

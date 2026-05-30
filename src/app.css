@@ -67,6 +67,22 @@ body {
   color: var(--color-on-accent, #ffffff);
 }
 
+/* Reader HUD overlays (page counter, reading timer, settings button).
+   They inherit the theme text colour (so they follow the theme and contrast the
+   reader background directly) and add a halo in the reader background colour so
+   they also stay legible floating over arbitrary manga art. This replaces a
+   mix-blend-difference trick that vanished whenever the theme's text colour was
+   close to the page behind it. */
+.reader-hud {
+  text-shadow:
+    0 0 4px var(--reader-bg),
+    0 0 4px var(--reader-bg),
+    0 0 2px var(--reader-bg);
+}
+.reader-hud svg {
+  filter: drop-shadow(0 0 3px var(--reader-bg)) drop-shadow(0 0 2px var(--reader-bg));
+}
+
 /* E-ink: flat, shadow-free surfaces for low-refresh panels.
    Excludes :focus-visible so keyboard focus rings (Tailwind renders them via
    box-shadow) survive for accessibility. */

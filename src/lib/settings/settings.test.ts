@@ -19,6 +19,9 @@ describe('theme migration', () => {
     expect(out.Test.theme).toBe('custom');
     expect(out.Test.customTheme.background).toBe('#123456');
     expect(out.Test.customTheme.base).toBe('dark');
+    // Must keep dark-appropriate tokens (light text), not the default light
+    // palette — otherwise text-white chrome would be mapped to black.
+    expect(out.Test.customTheme.text).toBe('#ffffff');
   });
 
   it('merges customTheme over defaults', () => {

@@ -458,9 +458,13 @@ export function migrateProfiles(profiles: Profiles): Profiles {
       typeof profile.backgroundColor === 'string' &&
       profile.backgroundColor !== defaultSettings.backgroundColor
     ) {
+      // Seed from the Dark preset's (dark-appropriate) tokens and override only
+      // the canvas/reader background, so the UI chrome stays light-on-dark.
+      // Using the default light customTheme here would map --color-white to the
+      // dark text color and make all `text-white` chrome invisible.
       migratedProfile.theme = 'custom';
       migratedProfile.customTheme = {
-        ...migratedProfile.customTheme,
+        ...PRESETS.dark.tokens,
         base: 'dark',
         background: profile.backgroundColor
       };

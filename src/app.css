@@ -42,8 +42,10 @@ body {
   background-color: var(--app-bg);
 }
 
-/* E-ink: flat, shadow-free surfaces for low-refresh panels. */
-:root[data-theme='eink'] *,
+/* E-ink: flat, shadow-free surfaces for low-refresh panels.
+   Excludes :focus-visible so keyboard focus rings (Tailwind renders them via
+   box-shadow) survive for accessibility. */
+:root[data-theme='eink'] *:not(:focus-visible),
 :root[data-theme='eink'] *::before,
 :root[data-theme='eink'] *::after {
   box-shadow: none !important;

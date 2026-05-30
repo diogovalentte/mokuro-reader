@@ -145,7 +145,7 @@
     <!-- Main toggle button -->
     <button
       onclick={toggleMenu}
-      class="flex h-12 w-12 items-center justify-center rounded-full text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+      class="flex h-12 w-12 items-center justify-center rounded-full text-gray-900 focus:ring-2 focus:ring-blue-500 focus:outline-none dark:text-white"
       aria-label="Quick actions menu"
       style="transition: transform 0.3s ease; transform: rotate({open ? 45 : 0}deg);"
     >

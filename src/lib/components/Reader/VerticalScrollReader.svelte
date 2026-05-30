@@ -570,7 +570,7 @@
 <div
   bind:this={outerDiv}
   class="fixed inset-0"
-  style:background-color={$settings.backgroundColor}
+  style:background-color="var(--reader-bg)"
   style:touch-action="none"
   onpointerdown={handlePointerDown}
   onpointermove={handlePointerMove}

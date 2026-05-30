@@ -1331,7 +1331,7 @@
         </div>
       </div>
     </Popover>
-    <button class="fixed top-5 left-5 z-10 opacity-50 mix-blend-difference" id="page-num">
+    <button class="reader-hud fixed top-5 left-5 z-10 opacity-80" id="page-num">
       {#key page}
         <p class="text-left" class:hidden={!$settings.charCount}>{charDisplay}</p>
         <p class="text-left" class:hidden={!$settings.pageNum}>{pageDisplay}</p>
@@ -1383,7 +1383,7 @@
     {/if}
   {:else}
     <!-- Page-based mode -->
-    <div class="flex" style:background-color={$settings.backgroundColor}>
+    <div class="flex" style:background-color="var(--reader-bg)">
       <Panzoom>
         <button
           aria-label="Previous page (left edge)"

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { AccordionItem, Label } from 'flowbite-svelte';
   import {
+    ImageSolid,
+    FontColorAltSolid,
     BookmarkSolid,
     DownloadSolid,
     CheckCircleSolid,
@@ -70,25 +72,24 @@
           onclick={() => (sw.id === 'custom' ? editCustom() : selectPreset(sw.id))}
         >
           <span class="font-medium">{sw.name}</span>
-          <!-- A glance at the whole palette: token-tinted icons for the action
-               roles (accent / download / mark-as-done / delete), plus circles for
-               background and muted. Surface = button bg, text = label, border =
-               the button's own outline. -->
+          <!-- The whole palette at a glance: one icon per token, each tinted with
+               its colour and ordered to match the custom editor (background,
+               muted, accent, secondary "download", success "mark as done", danger
+               "delete"). Surface = button bg, text = label, border = the button's
+               own outline. A faint muted outline keeps icons whose colour is close
+               to the surface (e.g. background) visible. -->
+          {#snippet roleIcon(color: string, Icon: typeof ImageSolid)}
+            <span style:color style:filter="drop-shadow(0 0 0.5px {sw.tokens.muted})">
+              <Icon class="h-4 w-4" />
+            </span>
+          {/snippet}
           <span class="flex flex-wrap items-center gap-1.5">
-            <span style:color={sw.tokens.accent}><BookmarkSolid class="h-4 w-4" /></span>
-            <span style:color={sw.tokens.secondary}><DownloadSolid class="h-4 w-4" /></span>
-            <span style:color={sw.tokens.success}><CheckCircleSolid class="h-4 w-4" /></span>
-            <span style:color={sw.tokens.danger}><TrashBinSolid class="h-4 w-4" /></span>
-            <span
-              class="h-3.5 w-3.5 rounded-full"
-              style:background-color={sw.tokens.background}
-              style:box-shadow="inset 0 0 0 1px {sw.tokens.muted}"
-            ></span>
-            <span
-              class="h-3.5 w-3.5 rounded-full"
-              style:background-color={sw.tokens.muted}
-              style:box-shadow="inset 0 0 0 1px {sw.tokens.border}"
-            ></span>
+            {@render roleIcon(sw.tokens.background, ImageSolid)}
+            {@render roleIcon(sw.tokens.muted, FontColorAltSolid)}
+            {@render roleIcon(sw.tokens.accent, BookmarkSolid)}
+            {@render roleIcon(sw.tokens.secondary, DownloadSolid)}
+            {@render roleIcon(sw.tokens.success, CheckCircleSolid)}
+            {@render roleIcon(sw.tokens.danger, TrashBinSolid)}
           </span>
         </button>
       {/each}

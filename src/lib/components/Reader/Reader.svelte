@@ -1383,7 +1383,7 @@
     {/if}
   {:else}
     <!-- Page-based mode -->
-    <div class="flex" style:background-color={$settings.backgroundColor}>
+    <div class="flex" style:background-color="var(--reader-bg)">
       <Panzoom>
         <button
           aria-label="Previous page (left edge)"

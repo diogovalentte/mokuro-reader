@@ -23,6 +23,12 @@
     $settings?.customTheme ?? { base: 'light' as const, ...PRESETS.eink.tokens }
   );
 
+  // Each swatch button previews its own theme (surface bg, text colour, accent dot).
+  let swatches = $derived([
+    ...presetList.map((p) => ({ id: p.id, name: p.name, tokens: p.tokens })),
+    { id: 'custom', name: 'Custom…', tokens: custom as ThemeTokens }
+  ]);
+
   function selectPreset(id: string) {
     updateSetting('theme', id);
   }
@@ -47,36 +53,24 @@
   {#snippet header()}Appearance{/snippet}
   <div class="flex flex-col gap-4">
     <div class="grid grid-cols-2 gap-2">
-      {#each presetList as preset (preset.id)}
+      {#each swatches as sw (sw.id)}
         <button
           type="button"
-          class="relative z-10 flex items-center gap-2 rounded-lg border p-2 text-left text-sm
-            {current === preset.id
-            ? 'border-primary-500 ring-2 ring-primary-500'
-            : 'border-gray-300 dark:border-gray-600'}"
-          onclick={() => selectPreset(preset.id)}
+          class="relative z-10 flex items-center gap-2 rounded-lg border-2 p-2 text-left text-sm"
+          style:background-color={sw.tokens.surface}
+          style:color={sw.tokens.text}
+          style:border-color={current === sw.id ? sw.tokens.accent : sw.tokens.border}
+          style:box-shadow={current === sw.id ? `0 0 0 2px ${sw.tokens.accent}` : undefined}
+          onclick={() => (sw.id === 'custom' ? editCustom() : selectPreset(sw.id))}
         >
           <span
-            class="h-6 w-6 shrink-0 rounded-full border border-gray-400"
-            style:background-color={preset.tokens.background}
+            class="h-4 w-4 shrink-0 rounded-full"
+            style:background-color={sw.tokens.accent}
+            style:border="1px solid {sw.tokens.border}"
           ></span>
-          <span
-            class="h-6 w-6 shrink-0 rounded-full border border-gray-400"
-            style:background-color={preset.tokens.accent}
-          ></span>
-          <span class="text-gray-900 dark:text-white">{preset.name}</span>
+          <span>{sw.name}</span>
         </button>
       {/each}
-      <button
-        type="button"
-        class="relative z-10 flex items-center gap-2 rounded-lg border p-2 text-left text-sm
-          {current === 'custom'
-          ? 'border-primary-500 ring-2 ring-primary-500'
-          : 'border-gray-300 dark:border-gray-600'}"
-        onclick={editCustom}
-      >
-        <span class="text-gray-900 dark:text-white">Custom…</span>
-      </button>
     </div>
 
     {#if current === 'custom'}

@@ -278,15 +278,18 @@ export const PRESETS: Record<string, ThemePreset> = {
     name: 'Crimson',
     base: 'dark',
     tokens: {
-      background: '#160b0e',
-      surface: '#271519',
-      text: '#f6e7ea',
-      muted: '#bb8e97',
-      border: '#482c34',
-      accent: '#e63950',
+      // Proper crimson: red-dominant dark surfaces (not muddy burgundy/wine) lit by
+      // the canonical crimson accent (#dc143c), with a cool steel-blue second tone
+      // for contrast and a brighter red for danger.
+      background: '#1c060d',
+      surface: '#310b16',
+      text: '#f8e9eb',
+      muted: '#d199a4',
+      border: '#5a1a29',
+      accent: '#dc143c',
       secondary: '#6d8bb0',
       success: '#4caf6a',
-      danger: '#ff6b6b'
+      danger: '#ff5a5a'
     }
   },
   godzilla: {

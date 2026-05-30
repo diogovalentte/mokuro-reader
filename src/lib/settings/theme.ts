@@ -94,9 +94,13 @@ export function deriveVars(tokens: ThemeTokens): Record<string, string> {
   vars['--color-gray-500'] = muted;
   vars['--color-body'] = muted; // Flowbite form helper colour
 
-  // Borders, dividers, subtle/elevated fills  (border-/bg-gray-600/700)
-  vars['--color-gray-600'] = mix(border, surface, 0.25);
-  vars['--color-gray-700'] = border;
+  // gray-700 is overwhelmingly an *elevated fill* (input / dropdown / radio /
+  // code-chip / range-track backgrounds), while borders & input outlines use
+  // gray-600. Keep them distinct: the fill reads as a recessed surface (near the
+  // card surface), NOT the border colour. gray-700 sits just off the surface
+  // toward the border so inputs are distinguishable from the card behind them.
+  vars['--color-gray-700'] = mix(surface, border, 0.4); // elevated fill
+  vars['--color-gray-600'] = border; // borders, dividers, input outlines
 
   // Surfaces  (bg-gray-800 cards/navbar, gray-900 deeper, gray-950 page bg)
   vars['--color-gray-800'] = surface;

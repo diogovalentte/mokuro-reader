@@ -32,9 +32,13 @@ describe('deriveVars (role-based, base-independent)', () => {
     expect(vars['--color-black']).toBe('#ffffff'); // deepest bg
   });
 
-  it('maps muted text and borders onto their slots', () => {
+  it('maps muted text, borders, and the elevated input fill onto their slots', () => {
     expect(vars['--color-gray-400']).toBe('#666666'); // muted
-    expect(vars['--color-gray-700']).toBe('#cccccc'); // border
+    expect(vars['--color-gray-600']).toBe('#cccccc'); // border / input outline
+    // gray-700 is the elevated input/dropdown fill — distinct from the border,
+    // sitting just off the surface so inputs read as recessed, not border-coloured.
+    expect(vars['--color-gray-700']).not.toBe('#cccccc');
+    expect(vars['--color-gray-700']).toBe('#ebebeb'); // mix(surface #fff, border #ccc, 0.4)
   });
 
   it('sets the accent onto the primary scale', () => {

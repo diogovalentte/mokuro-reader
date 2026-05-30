@@ -1,10 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [1.6.0] - 2026-05-29
 
 ### Added
 
-- **Theme system with light / e-ink modes** - A new Appearance setting offers five built-in themes — Dark (default, unchanged), E-ink (high-contrast black-on-white for e-readers with poor contrast), Paper (soft light), Sepia, and Nord — plus a Custom editor with six adjustable colors (background, surface, text, muted, border, accent) and a light/dark base. Themes are stored per-profile, so they sync across devices. The reader background and manga cover frames follow the active theme. Builds on the light-mode idea from @oscarwong67 (#86)
+- **Theme system** - A new Appearance setting with nine built-in themes — Dark (default, unchanged), E-ink (high-contrast black-on-white for e-readers), Ice, Sepia, Nord, Sakura, Pastel, Crimson, and Godzilla — plus a Custom editor. Each theme is previewed in its own swatch. Themes are defined by nine colours (background, surface, text, muted, border, accent, and "tone" colours for downloads, mark-as-read, and delete) and re-colour the whole app, including the reader background, the in-reader HUD, manga cover frames, and download/sync/delete buttons. Themes are stored per-profile, so they sync across devices. Builds on the light-mode idea from @oscarwong67 (#86)
 
 ## [1.5.10] - 2026-05-22
 

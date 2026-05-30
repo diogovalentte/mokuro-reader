@@ -40,23 +40,31 @@ function brightness(hex: string): number {
 }
 
 /**
- * Build a full Tailwind colour ramp (50..950) for `prefix` centred on `base` at
- * stop 500 — light tints mix toward white, dark stops shade toward black. Used to
- * recolour the saturated semantic scales (blue/green/red) from a single token.
+ * Build a full Tailwind colour ramp (50..950) for `prefix` from a single `base`
+ * token, used to recolour the saturated semantic scales (blue/green/red).
+ *
+ * Components hardcode stop 400 (and 300) as *accent text* (e.g. download labels,
+ * "mark as read"). Those were authored for dark backgrounds, so a plain lightened
+ * tint is unreadable on a light theme. We orient those text stops by the theme
+ * background: lighter on dark themes, darker on light themes — so the text always
+ * contrasts the page it sits on. `bg` is the theme background token.
  */
-function colorRamp(prefix: string, base: string): Record<string, string> {
+function colorRamp(prefix: string, base: string, bg: string): Record<string, string> {
+  const onLight = brightness(bg) >= 128;
+  const text300 = onLight ? shade(base, -0.08) : mix(base, '#ffffff', 0.5);
+  const text400 = onLight ? shade(base, -0.24) : mix(base, '#ffffff', 0.34);
   return {
-    [`${prefix}-50`]: mix(base, '#ffffff', 0.92),
-    [`${prefix}-100`]: mix(base, '#ffffff', 0.82),
-    [`${prefix}-200`]: mix(base, '#ffffff', 0.64),
-    [`${prefix}-300`]: mix(base, '#ffffff', 0.44),
-    [`${prefix}-400`]: mix(base, '#ffffff', 0.2),
+    [`${prefix}-50`]: mix(base, '#ffffff', 0.9),
+    [`${prefix}-100`]: mix(base, '#ffffff', 0.8),
+    [`${prefix}-200`]: mix(base, '#ffffff', 0.6),
+    [`${prefix}-300`]: text300,
+    [`${prefix}-400`]: text400,
     [`${prefix}-500`]: base,
-    [`${prefix}-600`]: shade(base, -0.12),
-    [`${prefix}-700`]: shade(base, -0.24),
-    [`${prefix}-800`]: shade(base, -0.36),
-    [`${prefix}-900`]: shade(base, -0.48),
-    [`${prefix}-950`]: shade(base, -0.6)
+    [`${prefix}-600`]: shade(base, -0.15),
+    [`${prefix}-700`]: shade(base, -0.28),
+    [`${prefix}-800`]: shade(base, -0.4),
+    [`${prefix}-900`]: shade(base, -0.52),
+    [`${prefix}-950`]: shade(base, -0.62)
   };
 }
 
@@ -112,9 +120,9 @@ export function deriveVars(tokens: ThemeTokens): Record<string, string> {
   //   danger    -> red   (warnings, delete / destructive buttons)
   Object.assign(
     vars,
-    colorRamp('--color-blue', secondary),
-    colorRamp('--color-green', success),
-    colorRamp('--color-red', danger)
+    colorRamp('--color-blue', secondary, background),
+    colorRamp('--color-green', success, background),
+    colorRamp('--color-red', danger, background)
   );
 
   // Label colour forced onto strong coloured buttons/badges (see app.css), so a

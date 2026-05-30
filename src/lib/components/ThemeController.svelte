@@ -12,8 +12,11 @@
     if (!browser) return;
     const root = document.documentElement;
 
-    if (theme.base === 'dark') root.classList.add('dark');
-    else root.classList.remove('dark');
+    // `.dark` is kept ON for every theme. The app is dark-first, so all components
+    // (including ones with only bare dark utilities) read the dark-mode colour slots;
+    // themes repaint those slots via CSS variables. A light theme is the dark layout
+    // with light-valued slots — see deriveVars() in settings/theme.ts.
+    root.classList.add('dark');
 
     root.dataset.theme = theme.id;
 

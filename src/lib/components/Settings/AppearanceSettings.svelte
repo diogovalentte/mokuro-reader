@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { AccordionItem, Label, Toggle } from 'flowbite-svelte';
+  import { AccordionItem, Label } from 'flowbite-svelte';
   import { get } from 'svelte/store';
   import { settings, updateSetting, PRESETS, type ThemeTokens } from '$lib/settings';
 
@@ -37,13 +37,6 @@
 
   function setToken(key: keyof ThemeTokens, value: string) {
     updateSetting('customTheme', { ...get(settings).customTheme, [key]: value });
-  }
-
-  function setBase(isDark: boolean) {
-    updateSetting('customTheme', {
-      ...get(settings).customTheme,
-      base: isDark ? 'dark' : 'light'
-    });
   }
 </script>
 
@@ -85,9 +78,6 @@
 
     {#if current === 'custom'}
       <div class="flex flex-col gap-3 rounded-lg border border-gray-300 p-3 dark:border-gray-600">
-        <Toggle checked={custom.base === 'dark'} onchange={(e) => setBase(e.currentTarget.checked)}>
-          Dark base (light text &amp; icons)
-        </Toggle>
         {#each tokenFields as field (field.key)}
           <div class="flex items-center justify-between gap-3">
             <Label class="text-gray-900 dark:text-white">{field.label}</Label>

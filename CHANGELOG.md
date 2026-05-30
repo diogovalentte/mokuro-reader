@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.6.1] - 2026-05-30
+
+### Fixed
+
+- Achievement badges stay consistent across themes
+
 ## [1.6.0] - 2026-05-29
 
 ### Added

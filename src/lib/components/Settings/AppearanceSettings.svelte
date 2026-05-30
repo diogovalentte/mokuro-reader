@@ -1,13 +1,6 @@
 <script lang="ts">
   import { AccordionItem, Label } from 'flowbite-svelte';
-  import {
-    ImageSolid,
-    FontColorAltSolid,
-    BookmarkSolid,
-    DownloadSolid,
-    CheckCircleSolid,
-    TrashBinSolid
-  } from 'flowbite-svelte-icons';
+  import { DownloadSolid, CheckCircleSolid, TrashBinSolid } from 'flowbite-svelte-icons';
   import { get } from 'svelte/store';
   import { settings, updateSetting, PRESETS, type ThemeTokens } from '$lib/settings';
 
@@ -72,21 +65,26 @@
           onclick={() => (sw.id === 'custom' ? editCustom() : selectPreset(sw.id))}
         >
           <span class="font-medium">{sw.name}</span>
-          <!-- The whole palette at a glance: one icon per token, each tinted with
-               its colour and ordered to match the custom editor (background,
-               muted, accent, secondary "download", success "mark as done", danger
-               "delete"). Surface = button bg, text = label, border = the button's
-               own outline. A faint muted outline keeps icons whose colour is close
-               to the surface (e.g. background) visible. -->
-          {#snippet roleIcon(color: string, Icon: typeof ImageSolid)}
-            <span style:color style:filter="drop-shadow(0 0 0.5px {sw.tokens.muted})">
-              <Icon class="h-4 w-4" />
-            </span>
+          <!-- The whole palette at a glance, ordered to match the custom editor.
+               The base colours (background, muted, accent) are plain swatch
+               circles; the action colours map to their real icons (secondary =
+               download, success = mark-as-done, danger = delete). Surface = button
+               bg, text = label, border = the button's own outline. Circles carry a
+               muted ring so one matching the surface (e.g. background) stays visible. -->
+          {#snippet dot(color: string)}
+            <span
+              class="h-4 w-4 shrink-0 rounded-full"
+              style:background-color={color}
+              style:box-shadow="inset 0 0 0 1px {sw.tokens.muted}"
+            ></span>
+          {/snippet}
+          {#snippet roleIcon(color: string, Icon: typeof DownloadSolid)}
+            <span style:color><Icon class="h-4 w-4" /></span>
           {/snippet}
           <span class="flex flex-wrap items-center gap-1.5">
-            {@render roleIcon(sw.tokens.background, ImageSolid)}
-            {@render roleIcon(sw.tokens.muted, FontColorAltSolid)}
-            {@render roleIcon(sw.tokens.accent, BookmarkSolid)}
+            {@render dot(sw.tokens.background)}
+            {@render dot(sw.tokens.muted)}
+            {@render dot(sw.tokens.accent)}
             {@render roleIcon(sw.tokens.secondary, DownloadSolid)}
             {@render roleIcon(sw.tokens.success, CheckCircleSolid)}
             {@render roleIcon(sw.tokens.danger, TrashBinSolid)}

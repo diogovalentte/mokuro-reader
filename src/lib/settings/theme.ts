@@ -291,17 +291,18 @@ export const PRESETS: Record<string, ThemePreset> = {
     name: 'Godzilla',
     base: 'dark',
     tokens: {
-      // Dark charcoal monster with glowing atomic-blue accent, radioactive-green
-      // second tone, and heat-ray orange-red for danger.
-      background: '#0f1316',
-      surface: '#1a2127',
-      text: '#d9e3e6',
-      muted: '#7e9094',
-      border: '#2f3a40',
-      accent: '#34c2dd',
-      secondary: '#7bc043',
-      success: '#5cb85c',
-      danger: '#ff5a3c'
+      // Scaly green-black monster hide (the whole UI is green-cast, not neutral
+      // charcoal) lit by a glowing atomic-cyan accent and radioactive-lime second
+      // tone, with heat-ray orange-red danger.
+      background: '#0a130c',
+      surface: '#16271a',
+      text: '#d7ead5',
+      muted: '#7d9a80',
+      border: '#2b4631',
+      accent: '#2ad4e6',
+      secondary: '#9bd83f',
+      success: '#54c95a',
+      danger: '#ff6234'
     }
   }
 };

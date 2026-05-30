@@ -32,6 +32,23 @@
   --color-body: #6b7280;
 }
 
+/* Theme system: canvas background + e-ink shadow suppression.
+   Default matches the Dark preset so there is no flash before ThemeController mounts. */
+:root {
+  --app-bg: #030712;
+}
+
+body {
+  background-color: var(--app-bg);
+}
+
+/* E-ink: flat, shadow-free surfaces for low-refresh panels. */
+:root[data-theme='eink'] *,
+:root[data-theme='eink'] *::before,
+:root[data-theme='eink'] *::after {
+  box-shadow: none !important;
+}
+
 @layer base {
   button:not(:disabled),
   [role='button']:not(:disabled) {

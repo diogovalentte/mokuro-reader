@@ -7,7 +7,8 @@ const TOKENS: ThemeTokens = {
   text: '#000000',
   muted: '#666666',
   border: '#cccccc',
-  accent: '#2563eb'
+  accent: '#2563eb',
+  secondary: '#0e7490'
 };
 
 describe('deriveVars (role-based, base-independent)', () => {
@@ -37,6 +38,12 @@ describe('deriveVars (role-based, base-independent)', () => {
   it('sets the accent onto the primary scale', () => {
     expect(vars['--color-primary-500']).toBe('#2563eb');
     expect(vars['--color-brand']).toBe('#2563eb');
+  });
+
+  it('sets the secondary token onto the blue scale (download/cloud tone)', () => {
+    expect(vars['--color-blue-500']).toBe('#0e7490');
+    expect(vars['--color-blue-400']).toBeDefined();
+    expect(vars['--color-blue-700']).toBeDefined();
   });
 
   it('picks a readable on-accent label colour (white on a dark accent)', () => {

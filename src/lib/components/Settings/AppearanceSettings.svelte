@@ -12,7 +12,8 @@
     { key: 'text', label: 'Text' },
     { key: 'muted', label: 'Muted' },
     { key: 'border', label: 'Border' },
-    { key: 'accent', label: 'Accent' }
+    { key: 'accent', label: 'Accent' },
+    { key: 'secondary', label: 'Secondary (downloads)' }
   ];
 
   let current = $derived($settings?.theme ?? 'dark');

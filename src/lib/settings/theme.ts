@@ -11,6 +11,7 @@ export type ThemeTokens = {
   muted: string; // secondary text
   border: string; // dividers, outlines
   accent: string; // primary buttons, links, highlights
+  secondary: string; // second tone: download / cloud buttons & icons (the blue scale)
 };
 
 export type CustomTheme = ThemeTokens & { base: ThemeBase };
@@ -47,7 +48,7 @@ function brightness(hex: string): number {
  * independent of any light/dark "base".
  */
 export function deriveVars(tokens: ThemeTokens): Record<string, string> {
-  const { background, surface, text, muted, border, accent } = tokens;
+  const { background, surface, text, muted, border, accent, secondary } = tokens;
   const vars: Record<string, string> = {};
 
   // Primary text + icons  (text-white, text-gray-50..200 in dark-designed UI)
@@ -81,6 +82,21 @@ export function deriveVars(tokens: ThemeTokens): Record<string, string> {
   vars['--color-primary-800'] = shade(accent, -0.28);
   vars['--color-brand'] = accent;
 
+  // Secondary "second tone" -> the blue scale (download / cloud buttons & icons,
+  // info states, focus rings). A normal light->dark ramp centred on `secondary`,
+  // so light tints (blue-50/100) and strong stops (blue-600/700) all recolour.
+  vars['--color-blue-50'] = mix(secondary, '#ffffff', 0.92);
+  vars['--color-blue-100'] = mix(secondary, '#ffffff', 0.82);
+  vars['--color-blue-200'] = mix(secondary, '#ffffff', 0.64);
+  vars['--color-blue-300'] = mix(secondary, '#ffffff', 0.44);
+  vars['--color-blue-400'] = mix(secondary, '#ffffff', 0.2);
+  vars['--color-blue-500'] = secondary;
+  vars['--color-blue-600'] = shade(secondary, -0.12);
+  vars['--color-blue-700'] = shade(secondary, -0.24);
+  vars['--color-blue-800'] = shade(secondary, -0.36);
+  vars['--color-blue-900'] = shade(secondary, -0.48);
+  vars['--color-blue-950'] = shade(secondary, -0.6);
+
   // Label colour forced onto strong coloured buttons/badges (see app.css), so a
   // remapped `text-white` (= theme text colour) never collides with the accent fill.
   vars['--color-on-accent'] = brightness(accent) > 150 ? '#111111' : '#ffffff';
@@ -111,9 +127,10 @@ export const PRESETS: Record<string, ThemePreset> = {
       text: '#ffffff',
       muted: '#9ca3af',
       border: '#374151',
-      accent: '#ef562f'
+      accent: '#ef562f',
+      secondary: '#1c64f2'
     },
-    // Zero-change: keep Tailwind's default ramp + primary, only drive the canvas/reader bg.
+    // Zero-change: keep Tailwind's default ramp + primary + blue, only drive the canvas/reader bg.
     vars: { '--app-bg': '#030712', '--reader-bg': '#030712' }
   },
   eink: {
@@ -126,7 +143,8 @@ export const PRESETS: Record<string, ThemePreset> = {
       text: '#000000',
       muted: '#404040',
       border: '#bcbcbc',
-      accent: '#000000'
+      accent: '#000000',
+      secondary: '#3f4756'
     }
   },
   paper: {
@@ -139,7 +157,8 @@ export const PRESETS: Record<string, ThemePreset> = {
       text: '#111827',
       muted: '#6b7280',
       border: '#d1d5db',
-      accent: '#2563eb'
+      accent: '#2563eb',
+      secondary: '#0e7490'
     }
   },
   sepia: {
@@ -152,7 +171,8 @@ export const PRESETS: Record<string, ThemePreset> = {
       text: '#3a2c1c',
       muted: '#6f5f48',
       border: '#d8c9a8',
-      accent: '#9a6a3a'
+      accent: '#9a6a3a',
+      secondary: '#5c7a99'
     }
   },
   nord: {
@@ -165,7 +185,8 @@ export const PRESETS: Record<string, ThemePreset> = {
       text: '#d8dee9',
       muted: '#81a1c1',
       border: '#4c566a',
-      accent: '#88c0d0'
+      accent: '#88c0d0',
+      secondary: '#5e81ac'
     }
   }
 };

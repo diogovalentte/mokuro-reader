@@ -260,7 +260,8 @@ const defaultSettings: Settings = {
     text: '#000000',
     muted: '#3f3f3f',
     border: '#000000',
-    accent: '#000000'
+    accent: '#000000',
+    secondary: '#3f4756'
   },
   swipeThreshold: 50,
   edgeButtonWidth: 40,

@@ -1,6 +1,7 @@
 import { browser } from '$app/environment';
 import { derived, get, readable, writable } from 'svelte/store';
 import { isMobilePlatform } from '$lib/util/platform';
+import { PRESETS, resolveTheme, type ResolvedTheme } from './theme';
 
 export type FontSize =
   | 'auto'
@@ -131,6 +132,8 @@ export type Settings = {
   bounds: boolean;
   mobile: boolean;
   backgroundColor: string;
+  theme: string; // preset id ('dark' | 'eink' | 'paper' | 'sepia' | 'nord' | 'custom')
+  customTheme: import('./theme').CustomTheme; // edited by the Custom theme mode
   swipeThreshold: number;
   edgeButtonWidth: number;
   showTimer: boolean;
@@ -249,6 +252,19 @@ const defaultSettings: Settings = {
   mobile: false,
   bounds: true,
   backgroundColor: '#030712',
+  theme: 'dark',
+  customTheme: {
+    base: 'light',
+    background: '#ffffff',
+    surface: '#ffffff',
+    text: '#000000',
+    muted: '#3f3f3f',
+    border: '#000000',
+    accent: '#000000',
+    secondary: '#3f4756',
+    success: '#15803d',
+    danger: '#b91c1c'
+  },
   swipeThreshold: 50,
   edgeButtonWidth: 40,
   showTimer: false,
@@ -432,6 +448,31 @@ export function migrateProfiles(profiles: Profiles): Profiles {
       ...(profile.catalogSettings || {})
     };
 
+    // Theme migration. The `...defaultSettings, ...profile` spread above already
+    // applies `theme`/`customTheme` defaults or carries existing values forward.
+    migratedProfile.customTheme = {
+      ...defaultSettings.customTheme,
+      ...(profile.customTheme || {})
+    };
+    // Legacy: a profile predating themes that deliberately changed the reader
+    // background keeps its look via a seeded Custom theme.
+    if (
+      profile.theme === undefined &&
+      typeof profile.backgroundColor === 'string' &&
+      profile.backgroundColor !== defaultSettings.backgroundColor
+    ) {
+      // Seed from the Dark preset's (dark-appropriate) tokens and override only
+      // the canvas/reader background, so the UI chrome stays light-on-dark.
+      // Using the default light customTheme here would map --color-white to the
+      // dark text color and make all `text-white` chrome invisible.
+      migratedProfile.theme = 'custom';
+      migratedProfile.customTheme = {
+        ...PRESETS.dark.tokens,
+        base: 'dark',
+        background: profile.backgroundColor
+      };
+    }
+
     // Add timestamp if missing
     if (!migratedProfile.lastUpdated) {
       const newTimestamp = new Date().toISOString();
@@ -508,6 +549,17 @@ export const settings = derived(
     }
   }
 );
+
+/** Resolve the active profile's theme into applied CSS variables. */
+export const activeTheme = derived(settings, ($settings): ResolvedTheme => {
+  if (!$settings) return resolveTheme(PRESETS.dark);
+  const id = $settings.theme ?? 'dark';
+  if (id === 'custom' && $settings.customTheme) {
+    const { base, ...tokens } = $settings.customTheme;
+    return resolveTheme({ id: 'custom', name: 'Custom', base, tokens });
+  }
+  return resolveTheme(PRESETS[id] ?? PRESETS.dark);
+});
 
 // Derived store for easy access to catalog settings
 export const catalogSettings = derived(settings, ($settings) => $settings?.catalogSettings);
@@ -748,3 +800,5 @@ export function copyProfile(profileToCopy: string, newName: string) {
 export function changeProfile(profileId: string) {
   currentProfile.set(profileId);
 }
+
+export * from './theme';

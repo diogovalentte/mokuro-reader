@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Theme system with light / e-ink modes** - A new Appearance setting offers five built-in themes — Dark (default, unchanged), E-ink (high-contrast black-on-white for e-readers with poor contrast), Paper (soft light), Sepia, and Nord — plus a Custom editor with six adjustable colors (background, surface, text, muted, border, accent) and a light/dark base. Themes are stored per-profile, so they sync across devices. The reader background and manga cover frames follow the active theme. Builds on the light-mode idea from @oscarwong67 (#86)
+
 ## [1.5.10] - 2026-05-22
 
 ### Fixed

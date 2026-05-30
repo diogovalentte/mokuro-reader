@@ -257,15 +257,17 @@ export const PRESETS: Record<string, ThemePreset> = {
     name: 'Pastel',
     base: 'light',
     tokens: {
-      background: '#f6f4fb',
-      surface: '#ffffff',
-      text: '#3f3d56',
-      muted: '#88859f',
-      border: '#e4e0f0',
-      accent: '#7c6fd0',
-      secondary: '#5b9bd5',
-      success: '#6aa86a',
-      danger: '#e0707a'
+      // Cohesive soft-lilac pastel: palest page, a defined lilac panel surface
+      // (so the title bar reads as a panel), deepened text/accents for legibility.
+      background: '#f7f4fd',
+      surface: '#e8e1f5',
+      text: '#3a3357',
+      muted: '#6f6892',
+      border: '#d5cbec',
+      accent: '#8b6fd6',
+      secondary: '#4e9fd4',
+      success: '#3f9d6b',
+      danger: '#d85a78'
     }
   },
   crimson: {
@@ -282,6 +284,24 @@ export const PRESETS: Record<string, ThemePreset> = {
       secondary: '#6d8bb0',
       success: '#4caf6a',
       danger: '#ff6b6b'
+    }
+  },
+  godzilla: {
+    id: 'godzilla',
+    name: 'Godzilla',
+    base: 'dark',
+    tokens: {
+      // Dark charcoal monster with glowing atomic-blue accent, radioactive-green
+      // second tone, and heat-ray orange-red for danger.
+      background: '#0f1316',
+      surface: '#1a2127',
+      text: '#d9e3e6',
+      muted: '#7e9094',
+      border: '#2f3a40',
+      accent: '#34c2dd',
+      secondary: '#7bc043',
+      success: '#5cb85c',
+      danger: '#ff5a3c'
     }
   }
 };

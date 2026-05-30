@@ -72,8 +72,8 @@ describe('PRESETS', () => {
       'dark',
       'eink',
       'godzilla',
+      'ice',
       'nord',
-      'paper',
       'pastel',
       'sakura',
       'sepia'

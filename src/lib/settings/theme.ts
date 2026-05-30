@@ -183,20 +183,23 @@ export const PRESETS: Record<string, ThemePreset> = {
       danger: '#b91c1c'
     }
   },
-  paper: {
-    id: 'paper',
-    name: 'Paper',
+  ice: {
+    id: 'ice',
+    name: 'Ice',
     base: 'light',
     tokens: {
-      background: '#f3f4f6',
-      surface: '#ffffff',
-      text: '#111827',
-      muted: '#6b7280',
-      border: '#d1d5db',
-      accent: '#2563eb',
-      secondary: '#0e7490',
-      success: '#16a34a',
-      danger: '#dc2626'
+      // Light-mode counterpart to Nord: Nord snow-storm backgrounds, polar-night
+      // text, frost-blue accent, with a frost-teal second tone and deepened
+      // aurora green/red so they read on the pale surface.
+      background: '#eceff4',
+      surface: '#dce4ef',
+      text: '#2e3440',
+      muted: '#4c566a',
+      border: '#c6d2e0',
+      accent: '#5e81ac',
+      secondary: '#3d9aa8',
+      success: '#6f8f4e',
+      danger: '#b34b56'
     }
   },
   sepia: {

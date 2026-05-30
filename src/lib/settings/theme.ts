@@ -236,17 +236,20 @@ export const PRESETS: Record<string, ThemePreset> = {
     name: 'Sakura',
     base: 'light',
     tokens: {
-      // Page is the palest tint; surface (navbar, cards, panels) is a defined
-      // cherry-blossom pink so the title bar reads as a panel, not blank space.
-      background: '#fff5f8',
-      surface: '#fcdce7',
-      text: '#4a2b34',
-      muted: '#9c5f72',
-      border: '#f1c2d3',
-      accent: '#d6336c',
-      secondary: '#3f8f7d',
-      success: '#4d8a52',
-      danger: '#c0392b'
+      // Ported from the Codigrate "Sakura" IntelliJ theme (codigrate/jetbrains-themes):
+      // pale-pink page, pinker surface panels, dark-maroon text, mauve muted text,
+      // rose accent, blue info (secondary), green success, red error. Border is a
+      // soft rose (their theme reuses the surface colour for borders, but our inputs
+      // and dividers need a visible outline).
+      background: '#fcf4f7', // windowBackground
+      surface: '#f8dbe6', // surface (panels / navbar)
+      text: '#3d0013', // primaryForeground
+      muted: '#94667d', // secondaryForeground
+      border: '#e9b4c6', // derived (their borderColor == surface)
+      accent: '#b54b66', // accentColor
+      secondary: '#397fb7', // info (blue)
+      success: '#30a25e', // success
+      danger: '#ce5e5e' // error
     }
   },
   pastel: {

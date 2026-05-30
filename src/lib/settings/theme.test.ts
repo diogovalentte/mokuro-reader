@@ -66,8 +66,17 @@ describe('deriveVars (role-based, base-independent)', () => {
 });
 
 describe('PRESETS', () => {
-  it('includes the five built-in presets', () => {
-    expect(Object.keys(PRESETS).sort()).toEqual(['dark', 'eink', 'nord', 'paper', 'sepia']);
+  it('includes the built-in presets', () => {
+    expect(Object.keys(PRESETS).sort()).toEqual([
+      'crimson',
+      'dark',
+      'eink',
+      'nord',
+      'paper',
+      'pastel',
+      'sakura',
+      'sepia'
+    ]);
   });
   it('keeps Dark a zero-change theme (no ramp overrides, only canvas/reader bg)', () => {
     const resolved = resolveTheme(PRESETS.dark);

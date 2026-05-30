@@ -230,6 +230,54 @@ export const PRESETS: Record<string, ThemePreset> = {
       success: '#a3be8c',
       danger: '#bf616a'
     }
+  },
+  sakura: {
+    id: 'sakura',
+    name: 'Sakura',
+    base: 'light',
+    tokens: {
+      background: '#fff1f4',
+      surface: '#fffafb',
+      text: '#4a2b34',
+      muted: '#9c6b78',
+      border: '#f3d3dc',
+      accent: '#d6336c',
+      secondary: '#3f8f7d',
+      success: '#4d8a52',
+      danger: '#c0392b'
+    }
+  },
+  pastel: {
+    id: 'pastel',
+    name: 'Pastel',
+    base: 'light',
+    tokens: {
+      background: '#f6f4fb',
+      surface: '#ffffff',
+      text: '#3f3d56',
+      muted: '#88859f',
+      border: '#e4e0f0',
+      accent: '#7c6fd0',
+      secondary: '#5b9bd5',
+      success: '#6aa86a',
+      danger: '#e0707a'
+    }
+  },
+  crimson: {
+    id: 'crimson',
+    name: 'Crimson',
+    base: 'dark',
+    tokens: {
+      background: '#160b0e',
+      surface: '#271519',
+      text: '#f6e7ea',
+      muted: '#bb8e97',
+      border: '#482c34',
+      accent: '#e63950',
+      secondary: '#6d8bb0',
+      success: '#4caf6a',
+      danger: '#ff6b6b'
+    }
   }
 };
 

@@ -83,15 +83,6 @@ body {
   filter: drop-shadow(0 0 3px var(--reader-bg)) drop-shadow(0 0 2px var(--reader-bg));
 }
 
-/* E-ink: flat, shadow-free surfaces for low-refresh panels.
-   Excludes :focus-visible so keyboard focus rings (Tailwind renders them via
-   box-shadow) survive for accessibility. */
-:root[data-theme='eink'] *:not(:focus-visible),
-:root[data-theme='eink'] *::before,
-:root[data-theme='eink'] *::after {
-  box-shadow: none !important;
-}
-
 @layer base {
   button:not(:disabled),
   [role='button']:not(:disabled) {

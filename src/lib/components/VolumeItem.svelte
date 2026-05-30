@@ -530,7 +530,7 @@
             src={thumbnailUrl}
             alt="img"
             style="margin-right:10px;"
-            class="h-[70px] w-[50px] border border-gray-900 bg-black object-contain"
+            class="h-[70px] w-[50px] border border-gray-300 bg-gray-100 object-contain dark:border-gray-900 dark:bg-black"
           />
         {:else}
           <div
@@ -722,7 +722,7 @@
             <img
               src={thumbnailUrl}
               alt={volName}
-              class="h-auto w-auto border border-gray-900 bg-black sm:max-h-[350px] sm:max-w-[250px]"
+              class="h-auto w-auto border border-gray-300 bg-gray-100 sm:max-h-[350px] sm:max-w-[250px] dark:border-gray-900 dark:bg-black"
             />
           {:else}
             <PlaceholderThumbnail message="Generating thumbnail..." />

@@ -3,7 +3,7 @@
   import {
     BookmarkSolid,
     DownloadSolid,
-    ArrowsRepeatOutline,
+    CheckCircleSolid,
     TrashBinSolid
   } from 'flowbite-svelte-icons';
   import { get } from 'svelte/store';
@@ -70,13 +70,25 @@
           onclick={() => (sw.id === 'custom' ? editCustom() : selectPreset(sw.id))}
         >
           <span class="font-medium">{sw.name}</span>
-          <!-- A token-tinted icon per palette role: accent, download (secondary),
-               sync (success), delete (danger) — a glance at the theme's colours. -->
-          <span class="flex gap-2">
+          <!-- A glance at the whole palette: token-tinted icons for the action
+               roles (accent / download / mark-as-done / delete), plus circles for
+               background and muted. Surface = button bg, text = label, border =
+               the button's own outline. -->
+          <span class="flex flex-wrap items-center gap-1.5">
             <span style:color={sw.tokens.accent}><BookmarkSolid class="h-4 w-4" /></span>
             <span style:color={sw.tokens.secondary}><DownloadSolid class="h-4 w-4" /></span>
-            <span style:color={sw.tokens.success}><ArrowsRepeatOutline class="h-4 w-4" /></span>
+            <span style:color={sw.tokens.success}><CheckCircleSolid class="h-4 w-4" /></span>
             <span style:color={sw.tokens.danger}><TrashBinSolid class="h-4 w-4" /></span>
+            <span
+              class="h-3.5 w-3.5 rounded-full"
+              style:background-color={sw.tokens.background}
+              style:box-shadow="inset 0 0 0 1px {sw.tokens.muted}"
+            ></span>
+            <span
+              class="h-3.5 w-3.5 rounded-full"
+              style:background-color={sw.tokens.muted}
+              style:box-shadow="inset 0 0 0 1px {sw.tokens.border}"
+            ></span>
           </span>
         </button>
       {/each}

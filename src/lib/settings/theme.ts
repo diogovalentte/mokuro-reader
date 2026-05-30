@@ -236,11 +236,13 @@ export const PRESETS: Record<string, ThemePreset> = {
     name: 'Sakura',
     base: 'light',
     tokens: {
-      background: '#fff1f4',
-      surface: '#fffafb',
+      // Page is the palest tint; surface (navbar, cards, panels) is a defined
+      // cherry-blossom pink so the title bar reads as a panel, not blank space.
+      background: '#fff5f8',
+      surface: '#fcdce7',
       text: '#4a2b34',
-      muted: '#9c6b78',
-      border: '#f3d3dc',
+      muted: '#9c5f72',
+      border: '#f1c2d3',
       accent: '#d6336c',
       secondary: '#3f8f7d',
       success: '#4d8a52',

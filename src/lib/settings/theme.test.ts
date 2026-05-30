@@ -8,7 +8,9 @@ const TOKENS: ThemeTokens = {
   muted: '#666666',
   border: '#cccccc',
   accent: '#2563eb',
-  secondary: '#0e7490'
+  secondary: '#0e7490',
+  success: '#16a34a',
+  danger: '#dc2626'
 };
 
 describe('deriveVars (role-based, base-independent)', () => {
@@ -40,10 +42,13 @@ describe('deriveVars (role-based, base-independent)', () => {
     expect(vars['--color-brand']).toBe('#2563eb');
   });
 
-  it('sets the secondary token onto the blue scale (download/cloud tone)', () => {
-    expect(vars['--color-blue-500']).toBe('#0e7490');
-    expect(vars['--color-blue-400']).toBeDefined();
-    expect(vars['--color-blue-700']).toBeDefined();
+  it('recolours the semantic scales from their tokens', () => {
+    expect(vars['--color-blue-500']).toBe('#0e7490'); // secondary -> blue
+    expect(vars['--color-green-500']).toBe('#16a34a'); // success -> green
+    expect(vars['--color-red-500']).toBe('#dc2626'); // danger -> red
+    // ramps span light tints to dark stops
+    expect(vars['--color-green-50']).toBeDefined();
+    expect(vars['--color-red-900']).toBeDefined();
   });
 
   it('picks a readable on-accent label colour (white on a dark accent)', () => {

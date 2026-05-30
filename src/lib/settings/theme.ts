@@ -12,6 +12,8 @@ export type ThemeTokens = {
   border: string; // dividers, outlines
   accent: string; // primary buttons, links, highlights
   secondary: string; // second tone: download / cloud buttons & icons (the blue scale)
+  success: string; // mark-as-read, sync badge, completed indicators (the green scale)
+  danger: string; // warnings, delete / destructive buttons (the red scale)
 };
 
 export type CustomTheme = ThemeTokens & { base: ThemeBase };
@@ -38,6 +40,27 @@ function brightness(hex: string): number {
 }
 
 /**
+ * Build a full Tailwind colour ramp (50..950) for `prefix` centred on `base` at
+ * stop 500 — light tints mix toward white, dark stops shade toward black. Used to
+ * recolour the saturated semantic scales (blue/green/red) from a single token.
+ */
+function colorRamp(prefix: string, base: string): Record<string, string> {
+  return {
+    [`${prefix}-50`]: mix(base, '#ffffff', 0.92),
+    [`${prefix}-100`]: mix(base, '#ffffff', 0.82),
+    [`${prefix}-200`]: mix(base, '#ffffff', 0.64),
+    [`${prefix}-300`]: mix(base, '#ffffff', 0.44),
+    [`${prefix}-400`]: mix(base, '#ffffff', 0.2),
+    [`${prefix}-500`]: base,
+    [`${prefix}-600`]: shade(base, -0.12),
+    [`${prefix}-700`]: shade(base, -0.24),
+    [`${prefix}-800`]: shade(base, -0.36),
+    [`${prefix}-900`]: shade(base, -0.48),
+    [`${prefix}-950`]: shade(base, -0.6)
+  };
+}
+
+/**
  * Expand the six semantic tokens into Tailwind CSS-variable overrides.
  *
  * The app is dark-first: `.dark` is kept active at all times (see ThemeController),
@@ -48,7 +71,7 @@ function brightness(hex: string): number {
  * independent of any light/dark "base".
  */
 export function deriveVars(tokens: ThemeTokens): Record<string, string> {
-  const { background, surface, text, muted, border, accent, secondary } = tokens;
+  const { background, surface, text, muted, border, accent, secondary, success, danger } = tokens;
   const vars: Record<string, string> = {};
 
   // Primary text + icons  (text-white, text-gray-50..200 in dark-designed UI)
@@ -82,20 +105,17 @@ export function deriveVars(tokens: ThemeTokens): Record<string, string> {
   vars['--color-primary-800'] = shade(accent, -0.28);
   vars['--color-brand'] = accent;
 
-  // Secondary "second tone" -> the blue scale (download / cloud buttons & icons,
-  // info states, focus rings). A normal light->dark ramp centred on `secondary`,
-  // so light tints (blue-50/100) and strong stops (blue-600/700) all recolour.
-  vars['--color-blue-50'] = mix(secondary, '#ffffff', 0.92);
-  vars['--color-blue-100'] = mix(secondary, '#ffffff', 0.82);
-  vars['--color-blue-200'] = mix(secondary, '#ffffff', 0.64);
-  vars['--color-blue-300'] = mix(secondary, '#ffffff', 0.44);
-  vars['--color-blue-400'] = mix(secondary, '#ffffff', 0.2);
-  vars['--color-blue-500'] = secondary;
-  vars['--color-blue-600'] = shade(secondary, -0.12);
-  vars['--color-blue-700'] = shade(secondary, -0.24);
-  vars['--color-blue-800'] = shade(secondary, -0.36);
-  vars['--color-blue-900'] = shade(secondary, -0.48);
-  vars['--color-blue-950'] = shade(secondary, -0.6);
+  // Semantic scales recoloured from their tokens, so every button/icon/badge that
+  // uses them follows the theme:
+  //   secondary -> blue  (download / cloud actions, info states, focus rings)
+  //   success   -> green (mark-as-read, sync badge, completed indicators)
+  //   danger    -> red   (warnings, delete / destructive buttons)
+  Object.assign(
+    vars,
+    colorRamp('--color-blue', secondary),
+    colorRamp('--color-green', success),
+    colorRamp('--color-red', danger)
+  );
 
   // Label colour forced onto strong coloured buttons/badges (see app.css), so a
   // remapped `text-white` (= theme text colour) never collides with the accent fill.
@@ -128,7 +148,9 @@ export const PRESETS: Record<string, ThemePreset> = {
       muted: '#9ca3af',
       border: '#374151',
       accent: '#ef562f',
-      secondary: '#1c64f2'
+      secondary: '#1c64f2',
+      success: '#22c55e',
+      danger: '#ef4444'
     },
     // Zero-change: keep Tailwind's default ramp + primary + blue, only drive the canvas/reader bg.
     vars: { '--app-bg': '#030712', '--reader-bg': '#030712' }
@@ -144,7 +166,9 @@ export const PRESETS: Record<string, ThemePreset> = {
       muted: '#404040',
       border: '#bcbcbc',
       accent: '#000000',
-      secondary: '#3f4756'
+      secondary: '#3f4756',
+      success: '#15803d',
+      danger: '#b91c1c'
     }
   },
   paper: {
@@ -158,7 +182,9 @@ export const PRESETS: Record<string, ThemePreset> = {
       muted: '#6b7280',
       border: '#d1d5db',
       accent: '#2563eb',
-      secondary: '#0e7490'
+      secondary: '#0e7490',
+      success: '#16a34a',
+      danger: '#dc2626'
     }
   },
   sepia: {
@@ -172,7 +198,9 @@ export const PRESETS: Record<string, ThemePreset> = {
       muted: '#6f5f48',
       border: '#d8c9a8',
       accent: '#9a6a3a',
-      secondary: '#5c7a99'
+      secondary: '#5c7a99',
+      success: '#5f7a3a',
+      danger: '#a8432f'
     }
   },
   nord: {
@@ -186,7 +214,9 @@ export const PRESETS: Record<string, ThemePreset> = {
       muted: '#81a1c1',
       border: '#4c566a',
       accent: '#88c0d0',
-      secondary: '#5e81ac'
+      secondary: '#5e81ac',
+      success: '#a3be8c',
+      danger: '#bf616a'
     }
   }
 };

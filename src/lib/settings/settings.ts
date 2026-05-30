@@ -261,7 +261,9 @@ const defaultSettings: Settings = {
     muted: '#3f3f3f',
     border: '#000000',
     accent: '#000000',
-    secondary: '#3f4756'
+    secondary: '#3f4756',
+    success: '#15803d',
+    danger: '#b91c1c'
   },
   swipeThreshold: 50,
   edgeButtonWidth: 40,

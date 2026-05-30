@@ -13,7 +13,9 @@
     { key: 'muted', label: 'Muted' },
     { key: 'border', label: 'Border' },
     { key: 'accent', label: 'Accent' },
-    { key: 'secondary', label: 'Secondary (downloads)' }
+    { key: 'secondary', label: 'Secondary (downloads)' },
+    { key: 'success', label: 'Success (read / sync)' },
+    { key: 'danger', label: 'Danger (delete / warning)' }
   ];
 
   let current = $derived($settings?.theme ?? 'dark');

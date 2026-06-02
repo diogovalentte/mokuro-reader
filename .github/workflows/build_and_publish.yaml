@@ -2,6 +2,11 @@ name: Create and publish a container image
 
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Git tag to build (e.g. v1.6.6)
+        required: true
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -11,11 +16,10 @@ jobs:
   build-and-publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Set short SHA
-        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
-  
       - name: Check out
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -46,21 +50,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}
-
-      - name: Create tag using GitHub API
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const tag = process.env.SHORT_SHA;
-            const sha = context.sha;
-
-            await github.rest.git.createRef({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: `refs/tags/${tag}`,
-              sha: sha
-            });
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.tag }}
 
       - name: Create payload file
         run: |

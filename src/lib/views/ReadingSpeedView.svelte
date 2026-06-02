@@ -1413,8 +1413,9 @@
     <TrashBinSolid size="lg" class="mx-auto mb-4 text-gray-400 dark:text-gray-200" />
     <h3 class="mb-4 text-xl font-semibold text-gray-300">Remove Orphaned Volume Data?</h3>
     <p class="mb-4 text-base text-gray-400">
-      You have <span class="font-semibold text-white">{orphanedCounts.total} volume(s)</span> with missing
-      series information in your reading history.
+      You have <span class="font-semibold text-gray-900 dark:text-white"
+        >{orphanedCounts.total} volume(s)</span
+      > with missing series information in your reading history.
     </p>
     {#if orphanedCounts.speedTracked > 0 || orphanedCounts.markedAsRead > 0 || orphanedCounts.other > 0}
       <div class="mb-4 rounded bg-gray-800 p-3 text-left text-sm text-gray-400">

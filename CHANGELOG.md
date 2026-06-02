@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.6.0] - 2026-05-29
+
+### Added
+
+- **Theme system** - A new Appearance setting with nine built-in themes — Dark (default, unchanged), E-ink (high-contrast black-on-white for e-readers), Ice, Sepia, Nord, Sakura, Pastel, Crimson, and Godzilla — plus a Custom editor. Each theme is previewed in its own swatch. Themes are defined by nine colours (background, surface, text, muted, border, accent, and "tone" colours for downloads, mark-as-read, and delete) and re-colour the whole app, including the reader background, the in-reader HUD, manga cover frames, and download/sync/delete buttons. Themes are stored per-profile, so they sync across devices. Builds on the light-mode idea from @oscarwong67 (#86)
+
+## [1.5.10] - 2026-05-22
+
+### Fixed
+
+- **QuickActions "+" ignored Anki card mode** - The QuickActions "+" → image → text-box picker flow always opened the "Create new card" modal, ignoring the `cardMode` setting. It now uses the same update/create dispatch logic as the double-click and context-menu flows, including the 5-minute window check for updates. The `{page_num}` template variable also resolves correctly in this flow (#216)
+- **Page swipes during Anki modal** - The reader no longer flips pages while the Anki Update/Create Card modal is open, preventing accidental flips when dragging the crop box on touchscreens (#189)
+
+## [1.5.9] - 2026-05-17
+
+### Fixed
+
+- **Migaku popup scroll eaten by reader** - The reader's window-level wheel listener intercepted every wheel and blocked scrolling inside Migaku/Yomitan popup overlays. Wheel events are now only intercepted inside the reader content (#214)
+- **Migaku sentence capture stopped at line breaks** - "Capture sentence" / "read sentence" only saw the hovered OCR line because `<br/>` separators were treated as sentence boundaries. OCR lines now use a CSS-generated newline so DOM walkers see one continuous text node per speech bubble. Yomitan behaviour unchanged (#214)
+
 ## [1.5.8] - 2026-05-16
 
 ### Added

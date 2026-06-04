@@ -451,6 +451,13 @@
           showNotification(newVal ? 'Dividers On' : 'Dividers Off', 'page-dividers');
         }
         return;
+      case 'KeyT':
+        updateSetting('alwaysShowOCR', !$settings.alwaysShowOCR);
+        showNotification(
+          $settings.alwaysShowOCR ? 'Always Show OCR: Off' : 'Always Show OCR: On',
+          'always-show-ocr-toggle'
+        );
+        return;
       case 'KeyV':
         toggleContinuousScroll();
         return;

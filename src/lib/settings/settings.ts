@@ -126,6 +126,7 @@ export type Settings = {
   textEditable: boolean;
   textBoxBorders: boolean;
   displayOCR: boolean;
+  alwaysShowOCR: boolean;
   boldFont: boolean;
   pageNum: boolean;
   charCount: boolean;
@@ -244,6 +245,7 @@ export const DEFAULT_MODEL_CONFIGS: Record<string, Omit<ModelConfig, 'modelName'
 const defaultSettings: Settings = {
   defaultFullscreen: false,
   displayOCR: true,
+  alwaysShowOCR: false,
   textEditable: false,
   textBoxBorders: false,
   boldFont: false,

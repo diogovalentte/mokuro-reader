@@ -146,6 +146,8 @@ export type Settings = {
   nightModeSchedule: TimeSchedule;
   invertColors: boolean;
   invertColorsSchedule: TimeSchedule;
+  grayscale: boolean;
+  grayscaleSchedule: TimeSchedule;
   inactivityTimeoutMinutes: number;
   swapWheelBehavior: boolean;
   textBoxContextMenu: boolean;
@@ -175,7 +177,7 @@ export type CatalogSettingsKey = keyof CatalogSettings;
 
 export type TimeScheduleKey = keyof TimeSchedule;
 
-export type ScheduleSettingKey = 'nightModeSchedule' | 'invertColorsSchedule';
+export type ScheduleSettingKey = 'nightModeSchedule' | 'invertColorsSchedule' | 'grayscaleSchedule';
 
 // Helper to migrate old AnkiConnect settings to new modelConfigs format
 function migrateOldAnkiModelConfig(oldSettings: Record<string, any>): Record<string, ModelConfig> {
@@ -282,6 +284,12 @@ const defaultSettings: Settings = {
   },
   invertColors: false,
   invertColorsSchedule: {
+    enabled: false,
+    startTime: '21:00',
+    endTime: '06:00'
+  },
+  grayscale: false,
+  grayscaleSchedule: {
     enabled: false,
     startTime: '21:00',
     endTime: '06:00'
@@ -443,6 +451,11 @@ export function migrateProfiles(profiles: Profiles): Profiles {
     migratedProfile.invertColorsSchedule = {
       ...defaultSettings.invertColorsSchedule,
       ...(profile.invertColorsSchedule || {})
+    };
+
+    migratedProfile.grayscaleSchedule = {
+      ...defaultSettings.grayscaleSchedule,
+      ...(profile.grayscaleSchedule || {})
     };
 
     migratedProfile.catalogSettings = {
@@ -614,6 +627,25 @@ export const invertColorsActive = derived([settings, currentMinute], ([$settings
   }
   return $settings.invertColors ?? false;
 });
+
+export const grayscaleActive = derived([settings, currentMinute], ([$settings, _]) => {
+  if (!$settings) return false;
+  if ($settings.grayscaleSchedule?.enabled) {
+    return isWithinSchedule($settings.grayscaleSchedule);
+  }
+  return $settings.grayscale ?? false;
+});
+
+/**
+ * Combined CSS filter string for the manga image layer. invert() and
+ * grayscale() commute, so order is irrelevant. Night mode is applied
+ * separately via NightModeFilter.svelte and is intentionally not included.
+ */
+export const imageFilter = derived(
+  [invertColorsActive, grayscaleActive],
+  ([$invertColorsActive, $grayscaleActive]) =>
+    `invert(${$invertColorsActive ? 1 : 0}) grayscale(${$grayscaleActive ? 1 : 0})`
+);
 
 /**
  * Helper function to update a profile's timestamp

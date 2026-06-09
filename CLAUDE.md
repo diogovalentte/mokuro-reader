@@ -38,7 +38,7 @@ Mokuro Reader is a web-based manga reader for [mokuro](https://github.com/kha-wh
 - **SvelteKit 5**: Framework (uses new Svelte 5 runes: `$state`, `$derived`, `$effect`)
 - **Dexie**: IndexedDB wrapper for storing volumes and files
 - **@zip.js/zip.js**: ZIP file extraction
-- **Panzoom**: Pan/zoom functionality for manga pages
+- **Zoom architecture**: Shared ZoomController + measurement-based correction drives zoom in all reader modes (`src/lib/reader/zoom-*.ts`, `paged-*.ts`)
 - **Flowbite Svelte**: UI component library
 - **Tailwind CSS**: Styling
 - **Vitest**: Testing framework
@@ -54,7 +54,6 @@ src/
 │   ├── components/      # Svelte components
 │   ├── consts/          # Application constants
 │   ├── import/          # File import pipeline and processing
-│   ├── panzoom/         # Custom pan/zoom implementation
 │   ├── reader/          # Core reader logic
 │   ├── settings/        # Settings stores and profiles
 │   ├── styles/          # Shared CSS styles
@@ -218,7 +217,7 @@ Tracked per volume in the `volumes` store:
 
 ### Text Selection Handling
 
-The reader has complex text selection logic to prevent interference with panzoom drag:
+The reader has complex text selection logic to prevent interference with drag panning:
 
 - `beforeMouseDown` handler in MangaPage.svelte checks if click is on text
 - Text selection is only allowed within text boxes, not on background
@@ -405,5 +404,5 @@ git worktree add ../mokuro-reader-worktrees/<branch-name> <branch-name>
 
 - Cloud provider auth tokens may expire (Google Drive ~1 hour, others vary)
 - Large volume imports may cause memory pressure on low-end devices
-- Text selection in reader requires special handling to not conflict with panzoom
+- Text selection in reader requires special handling to not conflict with drag panning
 - Migaku extension aggressively mutates DOM and can interfere with UI controls

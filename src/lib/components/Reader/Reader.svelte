@@ -783,13 +783,15 @@
   let cachedImageUrl1 = $state<string | null>(null);
   let cachedImageUrl2 = $state<string | null>(null);
 
-  // Update cache when page or volume data changes
+  // Update cache when page or volume data changes. Continuous readers render
+  // every page with their own blob URLs and never consume this cache — skip
+  // the decode window there.
   $effect(() => {
     const currentIndex = index;
     const files = volumeData?.files;
     const pgs = pages;
 
-    if (files && pgs.length > 0 && currentIndex >= 0) {
+    if (files && pgs.length > 0 && currentIndex >= 0 && !$settings.continuousScroll) {
       // Update cache first (non-blocking - preloads in background)
       imageCache.updateCache(files, pgs, currentIndex);
 
@@ -832,6 +834,14 @@
   // Window size state for reactive auto-detection
   let windowWidth = $state(typeof window !== 'undefined' ? window.innerWidth : 0);
   let windowHeight = $state(typeof window !== 'undefined' ? window.innerHeight : 0);
+
+  let effectiveScrollMode = $derived(
+    $settings.scrollMode === 'auto'
+      ? windowWidth > windowHeight
+        ? 'horizontal'
+        : 'vertical'
+      : $settings.scrollMode
+  );
 
   // Determine if we should show single page based on mode, pages, and screen
   // Force calculation to wait for all data by using a single derived with explicit dependencies
@@ -894,8 +904,14 @@
   let continuousVisibleCount = $state(1);
   let pageDisplay = $derived.by(() => {
     if ($settings.continuousScroll) {
-      // Continuous mode: use actual visible count from the scroll reader
-      if (continuousVisibleCount > 1 && page + 1 <= (pages?.length ?? 0)) {
+      // Continuous mode: use actual visible count from the scroll reader.
+      // Only the horizontal reader reports counts — ignore a stale value
+      // after switching to vertical.
+      if (
+        effectiveScrollMode === 'horizontal' &&
+        continuousVisibleCount > 1 &&
+        page + 1 <= (pages?.length ?? 0)
+      ) {
         return `${page},${page + 1} / ${pages?.length}`;
       }
       return `${page} / ${pages?.length}`;
@@ -1369,12 +1385,6 @@
     {/key}
   {/if}
   {#if $settings.continuousScroll && volumeData?.files}
-    {@const effectiveScrollMode =
-      $settings.scrollMode === 'auto'
-        ? windowWidth > windowHeight
-          ? 'horizontal'
-          : 'vertical'
-        : $settings.scrollMode}
     {#if effectiveScrollMode === 'vertical'}
       <VerticalScrollReader
         {pages}

@@ -12,6 +12,7 @@
     "format": "prettier --plugin-search-dir . --write .",
     "test": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
     "changeset": "changeset",
     "changeset:version": "changeset version",
     "changeset:publish": "changeset tag",

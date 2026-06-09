@@ -1,9 +1,15 @@
 # Changelog
 
-## [1.6.1] - 2026-05-30
+## [1.6.1] - 2026-06-08
+
+### Added
+
+- Black & white (grayscale) filter with G hotkey (#221)
+- "Always show OCR" toggle with T shortcut (#220, @jakobnator)
 
 ### Fixed
 
+- Firefox now requests storage upfront so imports succeed (#223)
 - Achievement badges stay consistent across themes
 
 ## [1.6.0] - 2026-05-29

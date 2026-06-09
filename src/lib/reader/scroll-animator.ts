@@ -67,6 +67,16 @@ export class ScrollAnimator {
     this.yAnim.snapTo(y);
   }
 
+  /**
+   * Stop any in-flight animation, leaving the scroll position as-is.
+   * Used when a zoom gesture takes over scroll control — the next manual
+   * scroll resyncs the animators via onScroll().
+   */
+  stop(): void {
+    this.xAnim.stop();
+    this.yAnim.stop();
+  }
+
   /** Animate so that an element is centered in the viewport */
   scrollToElement(
     el: HTMLElement,

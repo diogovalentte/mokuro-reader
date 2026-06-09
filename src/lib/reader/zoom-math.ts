@@ -165,39 +165,3 @@ export function pinchMidpoint(points: readonly Point[]): Point {
     y: (points[0].y + points[1].y) / 2
   };
 }
-
-/**
- * @deprecated Superseded by the measurement-based correction above; still
- * referenced by the scroll readers until they move to ContinuousZoomController.
- */
-export function screenToContent(
-  screenX: number,
-  screenY: number,
-  wrapperVisualLeft: number,
-  wrapperVisualTop: number,
-  currentZoom: number
-): { contentX: number; contentY: number } {
-  return {
-    contentX: (screenX - wrapperVisualLeft) / currentZoom,
-    contentY: (screenY - wrapperVisualTop) / currentZoom
-  };
-}
-
-/**
- * @deprecated Superseded by the measurement-based correction above; still
- * referenced by the scroll readers until they move to ContinuousZoomController.
- */
-export function computeScrollPosition(
-  contentX: number,
-  contentY: number,
-  targetScreenX: number,
-  targetScreenY: number,
-  zoom: number,
-  wrapperOffsetX: number,
-  wrapperOffsetY: number
-): { scrollLeft: number; scrollTop: number } {
-  return {
-    scrollLeft: wrapperOffsetX + contentX * zoom - targetScreenX,
-    scrollTop: wrapperOffsetY + contentY * zoom - targetScreenY
-  };
-}

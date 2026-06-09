@@ -17,6 +17,8 @@ export default defineConfig({
   webServer: {
     command: `npm run dev -- --port ${port}`,
     port,
-    reuseExistingServer: true
+    // Reusing a server that another worktree owns would silently test that
+    // worktree's code — only reuse outside CI, and prefer E2E_PORT locally.
+    reuseExistingServer: !process.env.CI
   }
 });

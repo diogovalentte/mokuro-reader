@@ -39,7 +39,6 @@ async function setupWorld(page: Page, opts: WorldOpts) {
         overscrollBehavior: 'none',
         overflowAnchor: 'none'
       });
-      wrapper.style.transformOrigin = 'top left';
       const lead = document.createElement('div');
       lead.style.height = '50vh';
       const tail = document.createElement('div');
@@ -76,8 +75,7 @@ async function setupWorld(page: Page, opts: WorldOpts) {
       Object.assign(wrapper.style, {
         display: 'flex',
         alignItems: 'center',
-        direction: dir,
-        transformOrigin: rtl ? 'top right' : 'top left'
+        direction: dir
       });
       const lead = document.createElement('div');
       Object.assign(lead.style, { flexShrink: '0', width: '50vw' });
@@ -108,43 +106,27 @@ async function setupWorld(page: Page, opts: WorldOpts) {
     outer.appendChild(scroll);
     document.body.appendChild(outer);
 
-    // Layout appliers mirroring the readers' applyZoomLayout
-    function applyVertical(zoom: number) {
-      if (zoom > 1) {
-        wrapper.style.width = `${innerWidth}px`;
-        spacer.style.width = `${innerWidth * zoom}px`;
-        spacer.style.minHeight = `${wrapper.offsetHeight * zoom + innerHeight}px`;
-        wrapper.style.transform = `scale(${zoom})`;
-      } else {
-        wrapper.style.transform = '';
-        wrapper.style.width = '';
-        spacer.style.width = '';
-        spacer.style.minHeight = '';
-      }
-    }
-
-    function applyHorizontal(zoom: number) {
-      if (zoom > 1) {
-        spacer.style.width = `${wrapper.offsetWidth * zoom}px`;
-        spacer.style.height = `${wrapper.offsetHeight * zoom}px`;
-        wrapper.style.transform = `scale(${zoom})`;
-      } else {
-        wrapper.style.transform = '';
-        spacer.style.width = '';
-        spacer.style.height = '';
-      }
-      const visualHeight = wrapper.offsetHeight * zoom;
-      const align = visualHeight > scroll.clientHeight + 1 ? 'flex-start' : 'center';
-      scroll.style.alignItems = align;
-      spacer.style.alignItems = align;
-    }
+    // Drive the REAL production layout appliers (incl. the wrapper width pin
+    // and the RTL transform-origin rule) — not inline mirrors that would
+    // silently keep passing if the production rules regressed.
+    const layout = await import('/src/lib/reader/zoom-layout.ts');
+    const applyZoomLayout =
+      mode === 'vertical'
+        ? (zoom: number) =>
+            layout.applyVerticalZoomLayout(
+              { wrapper, spacer },
+              { width: innerWidth, height: innerHeight },
+              zoom
+            )
+        : (zoom: number) =>
+            layout.applyHorizontalZoomLayout({ wrapper, spacer, container: scroll }, !!rtl, zoom);
 
     const mod = await import('/src/lib/reader/zoom-controller.ts');
     const controller = new mod.ContinuousZoomController({
       getScrollContainer: () => scroll,
       getPageElements: () => pages,
       getViewport: () => ({ width: innerWidth, height: innerHeight }),
-      applyZoomLayout: mode === 'vertical' ? applyVertical : applyHorizontal
+      applyZoomLayout
     });
 
     w.__zoom = {
@@ -232,7 +214,20 @@ test('vertical fit-to-width: wheel zoom pins the cursor point and page boxes sta
 
     // Page layout boxes must scale once (transform), not twice (layout × transform)
     const pageRectWidth = z.pages[3].getBoundingClientRect().width;
-    return { cursor, pos1, zoom1, pos2, zoom2, pageRectWidth, vw: innerWidth };
+
+    // Page detection (issue #195's "aberrant paging"): with page 6's center
+    // scrolled to the viewport center at 2×, the real detection module must
+    // report 6 — the old offsetTop-based detection drifted by the zoom factor.
+    const det = await import('/src/lib/reader/page-detection.ts');
+    const r6 = z.pages[6].getBoundingClientRect();
+    z.scroll.scrollTop += r6.top + r6.height / 2 - innerHeight / 2;
+    const detected = det.closestPageToCenter(
+      z.scroll.getBoundingClientRect(),
+      z.pages.map((p: Element) => p.getBoundingClientRect()),
+      'y'
+    );
+
+    return { cursor, pos1, zoom1, pos2, zoom2, pageRectWidth, detected, vw: innerWidth };
   });
   expect(r.zoom1).toBe(1.5);
   expect(r.zoom2).toBe(2);
@@ -241,6 +236,7 @@ test('vertical fit-to-width: wheel zoom pins the cursor point and page boxes sta
   expect(Math.abs(r.pos2.x - r.cursor.x)).toBeLessThan(2);
   expect(Math.abs(r.pos2.y - r.cursor.y)).toBeLessThan(2);
   expect(Math.abs(r.pageRectWidth - r.vw * 2)).toBeLessThan(2);
+  expect(r.detected).toBe(6);
 });
 
 test('vertical: pinching inward at min zoom leaves the position untouched', async ({ page }) => {

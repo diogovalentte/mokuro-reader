@@ -8,6 +8,8 @@
   import MangaPage from './MangaPage.svelte';
   import { ScrollAnimator } from '$lib/reader/scroll-animator';
   import { ContinuousZoomController } from '$lib/reader/zoom-controller';
+  import { applyVerticalZoomLayout } from '$lib/reader/zoom-layout';
+  import { closestPageToCenter } from '$lib/reader/page-detection';
   import { normalizeWheelDelta, wheelIntentIsZoom } from '$lib/reader/zoom-math';
   import { onMount, onDestroy, tick } from 'svelte';
 
@@ -81,29 +83,14 @@
   let isZoomed = $state(false);
   let suppressSettleReport = false;
 
-  /**
-   * Reader-specific zoomed layout, applied imperatively inside the
-   * controller's frame step (before it measures and corrects scroll).
-   *
-   * The wrapper's layout width is pinned to the viewport width while zoomed:
-   * the spacer grows to provide scroll range, and an unpinned block wrapper
-   * would track it, resizing fit-to-width pages every frame (and re-centering
-   * mx-auto pages), so page layout must stay zoom-invariant with only the
-   * transform scaling it.
-   */
+  // Reader-specific zoomed layout — shared with the e2e suite, see zoom-layout.ts
   function applyZoomLayout(zoom: number) {
     if (!zoomWrapperEl || !zoomSpacerEl) return;
-    if (zoom > 1) {
-      zoomWrapperEl.style.width = `${viewportWidth}px`;
-      zoomSpacerEl.style.width = `${viewportWidth * zoom}px`;
-      zoomSpacerEl.style.minHeight = `${zoomWrapperEl.offsetHeight * zoom + viewportHeight}px`;
-      zoomWrapperEl.style.transform = `scale(${zoom})`;
-    } else {
-      zoomWrapperEl.style.transform = '';
-      zoomWrapperEl.style.width = '';
-      zoomSpacerEl.style.width = '';
-      zoomSpacerEl.style.minHeight = '';
-    }
+    applyVerticalZoomLayout(
+      { wrapper: zoomWrapperEl, spacer: zoomSpacerEl },
+      { width: viewportWidth, height: viewportHeight },
+      zoom
+    );
   }
 
   function handleZoomSettled(zoom: number) {
@@ -131,25 +118,44 @@
   /**
    * Finish an in-flight zoom before a competing scroll intent (keyboard nav,
    * external page change) so it acts on settled geometry. The settle report
-   * is suppressed — the navigation is about to change the page anyway.
+   * is suppressed — the navigation is about to change the page anyway —
+   * and the scroller adopts the corrected position (its state only syncs
+   * via async scroll events; without this the next scrollBy would animate
+   * from a stale position and undo the zoom's final correction).
    */
   function interruptZoomForNav() {
     if (!zoomController.isActive) return;
     suppressSettleReport = true;
     zoomController.finishNow();
     suppressSettleReport = false;
+    scroller?.sync();
   }
 
-  // When zoom mode changes (Z key), stay on the current page.
-  // Use lastReportedPage (set by scroll progress tracking) since
-  // detectCurrentPage() would see the already-shifted layout.
-  let prevZoomMode = $settings.continuousZoomDefault;
-  $effect(() => {
-    if (zoomMode === prevZoomMode) return;
-    prevZoomMode = zoomMode;
-
+  /**
+   * Instant zoom reset with the settle report suppressed: reset() skips the
+   * anchor correction, so the scroll offset is stale zoomed-space garbage —
+   * detection would land pages ahead and corrupt progress before the caller
+   * re-anchors to the page it captured.
+   */
+  function resetZoom() {
+    suppressSettleReport = true;
     zoomController.reset();
+    suppressSettleReport = false;
+  }
+
+  // When the zoom mode (Z key) or a layout-affecting setting changes, reset
+  // any user zoom (its measured spacer/transform are stale against the new
+  // layout) and stay on the current page. Use lastReportedPage (set by
+  // scroll progress tracking) since detectCurrentPage() would see the
+  // already-shifted layout.
+  let prevLayoutKey = `${$settings.continuousZoomDefault}|${$settings.pageDividers}|${$settings.scrollGap}`;
+  $effect(() => {
+    const layoutKey = `${zoomMode}|${$settings.pageDividers}|${$settings.scrollGap}`;
+    if (layoutKey === prevLayoutKey) return;
+    prevLayoutKey = layoutKey;
+
     const pageIdx = lastReportedPage - 1;
+    resetZoom();
     tick().then(() => {
       const el = pageElements[pageIdx];
       if (el)
@@ -176,23 +182,11 @@
    */
   function detectCurrentPage(): number {
     if (!scrollContainer) return 0;
-    const containerRect = scrollContainer.getBoundingClientRect();
-    const centerY = containerRect.top + containerRect.height / 2;
-    let closest = 0;
-    let closestDist = Infinity;
-
-    for (let i = 0; i < pageElements.length; i++) {
-      const el = pageElements[i];
-      if (!el) continue;
-      const rect = el.getBoundingClientRect();
-      const elCenter = rect.top + rect.height / 2;
-      const dist = Math.abs(elCenter - centerY);
-      if (dist < closestDist) {
-        closestDist = dist;
-        closest = i;
-      }
-    }
-    return closest;
+    return closestPageToCenter(
+      scrollContainer.getBoundingClientRect(),
+      pageElements.map((el) => el?.getBoundingClientRect()),
+      'y'
+    );
   }
 
   function reportProgress() {
@@ -338,6 +332,9 @@
     if (wheelIntentIsZoom(modifier, $settings.swapWheelBehavior)) {
       e.preventDefault();
       scroller?.stop();
+      // A held-button drag would keep writing absolute positions from its
+      // pre-zoom baseline, fighting the correction frames.
+      isDragging = false;
       zoomController.wheelZoom(e);
       return;
     }
@@ -521,8 +518,8 @@
   // ============================================================
 
   function handleResize() {
-    zoomController.reset();
     const pageIdx = lastReportedPage - 1;
+    resetZoom();
     viewportWidth = window.innerWidth;
     viewportHeight = window.innerHeight;
     tick().then(() => {
@@ -584,7 +581,8 @@
     onscroll={handleScroll}
   >
     <div bind:this={zoomSpacerEl} style:filter={$imageFilter}>
-      <div bind:this={zoomWrapperEl} style:transform-origin="top left">
+      <!-- transform-origin is set by applyVerticalZoomLayout -->
+      <div bind:this={zoomWrapperEl}>
         <!-- Centering spacer -->
         <div style:height="50vh"></div>
         {#each pages as page, i (i)}

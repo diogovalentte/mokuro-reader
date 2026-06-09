@@ -56,6 +56,8 @@ Both readers duplicate ~150 lines of zoom/pinch state. Extract one tested implem
   - `onZoomedChange(zoomed)` — drives `userZoom`-gated layout/drag state in the component
   - `onSettled(zoom)` — cleanup + page re-detection hook
   - API: `wheelZoom(e)`, `pinchStart/Move/End(points)`, `toggleZoom(x, y)` (double-tap), `cycleZoom(dir, x?, y?)`, `reset()` (instant 1×), `finishNow()` (snap to target + settle), `isActive`, `currentZoom`, `zoomTarget`, `destroy()`.
+- **`src/lib/reader/zoom-layout.ts`** (new): the reader-specific layout appliers (`applyVerticalZoomLayout`, `applyHorizontalZoomLayout` + alignment) — element-parametrized and Svelte-free so the components and the e2e suite drive the **same** code; the wrapper width pin and RTL transform-origin rules live only here.
+- **`src/lib/reader/page-detection.ts`** (new): pure rect-based current-page detection (`closestPageToCenter`, `detectHorizontalPage`, `horizontalVisibilityRatio`), unit-tested with zoomed-rect fixtures so the "aberrant paging" regression class stays pinned by tests.
 
 ### Frame step (the core fix)
 
@@ -79,8 +81,9 @@ Anchor capture (gesture start): pick the page element containing/nearest the ges
 
 ### Settle, interruption, and exclusivity rules
 
-- **Pinch must settle explicitly.** `Animator.snapTo` never fires `onSettle`, so `pinchEnd` runs the same settle routine as animated zoom: snap `zoomTarget` to the nearest level (bookkeeping; the visual zoom stays where the user left it), run 1× cleanup when `currentZoom ≤ 1 + ε`, re-run page detection + `reportProgress()`.
-- **`finishNow()`:** any competing scroll intent — keyboard nav, the external `currentPage` effect, scroll-intent wheel, a new drag — arriving while `controller.isActive` first snaps the zoom to its target and runs the settle routine synchronously, then proceeds against settled geometry. This prevents two rAF loops (zoom correction vs `ScrollAnimator`) from fighting and prevents user input from being silently reverted by the correction loop.
+- **Pinch must settle explicitly.** `Animator.snapTo` never fires `onSettle`, so `pinchEnd` runs the same settle routine as animated zoom: snap `zoomTarget` to the nearest level (bookkeeping; the visual zoom stays where the user left it — except releases between 1 and 1.05, which animate back to exactly 1× so a near-unzoomed view doesn't linger with zoomed layout), run 1× cleanup when `currentZoom ≤ 1 + ε`, re-run page detection + `reportProgress()`.
+- **`finishNow()`:** any competing scroll intent — keyboard nav, the external `currentPage` effect, scroll-intent wheel, a new drag — arriving while `controller.isActive` first snaps the zoom to its target and runs the settle routine synchronously, then proceeds against settled geometry. This prevents two rAF loops (zoom correction vs `ScrollAnimator`) from fighting and prevents user input from being silently reverted by the correction loop. After an interrupt the component re-syncs the `ScrollAnimator` to the container (`sync()`): scroll events from the correction frames arrive asynchronously, so without it the next `scrollBy` would animate from a stale position and undo the final correction. Wheel zoom also cancels a held-button drag for the same reason.
+- **Component resets are silent.** `reset()` (zoom-mode change, layout-setting change, resize) skips the anchor correction, leaving the scroll offset in stale zoomed-space coordinates — so the components suppress the settle report around it, capture the page to restore **before** resetting, and re-anchor afterward. Reporting there would detect a page roughly zoom× past the real one and corrupt progress/stats.
 - **Settle cleanup is conditional:** the cross-axis scroll reset at 1× only applies when no cross-axis scroll range remains after cleanup (`scrollWidth/Height ≤ client + 1`) — `zoomOriginal`/`fitToWidth` content legitimately scrolls on that axis at 1×.
 - **Pinch re-baselines on pointer-set changes:** if a third finger lands or one of three lifts while two remain, re-baseline `startDist`/`startZoom` and re-capture the anchor at the new midpoint — otherwise the pair-distance ratio jumps discontinuously.
 - **In horizontal, `onSettled` overrides `navTarget`** (and clears `navIsKeyboard`): an interrupted keyboard nav refers to a destination never reached.
@@ -118,7 +121,7 @@ Alignment is no longer driven by Svelte state (`userZoom > 1`) with its async fl
 
 ## Error handling
 
-- Anchor element missing (shouldn't happen — all page divs stay mounted): fall back to wrapper-relative anchoring for that gesture.
+- Anchor element missing (shouldn't happen — all page divs stay mounted): the gesture is ignored. Zooming with no measurable anchor has no meaningful target.
 - Zoom gesture with no scroll container / before mount: ignore.
 - Pinch with <2 pointers, zero start distance: ignore (existing guards).
 

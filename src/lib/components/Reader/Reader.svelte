@@ -784,14 +784,14 @@
   let cachedImageUrl2 = $state<string | null>(null);
 
   // Update cache when page or volume data changes. Continuous readers render
-  // every page with their own blob URLs and never consume this cache — skip
-  // the decode window there.
+  // their own blob URLs, but QuickActions reads imageCache.getFile() for Anki
+  // image actions in BOTH modes — the cache must stay warm here.
   $effect(() => {
     const currentIndex = index;
     const files = volumeData?.files;
     const pgs = pages;
 
-    if (files && pgs.length > 0 && currentIndex >= 0 && !$settings.continuousScroll) {
+    if (files && pgs.length > 0 && currentIndex >= 0) {
       // Update cache first (non-blocking - preloads in background)
       imageCache.updateCache(files, pgs, currentIndex);
 

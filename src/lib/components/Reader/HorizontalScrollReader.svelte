@@ -8,6 +8,8 @@
   import MangaPage from './MangaPage.svelte';
   import { ScrollAnimator } from '$lib/reader/scroll-animator';
   import { ContinuousZoomController } from '$lib/reader/zoom-controller';
+  import { applyHorizontalAlignment, applyHorizontalZoomLayout } from '$lib/reader/zoom-layout';
+  import { detectHorizontalPage, horizontalVisibilityRatio } from '$lib/reader/page-detection';
   import { normalizeWheelDelta, wheelIntentIsZoom } from '$lib/reader/zoom-math';
   import { onMount, onDestroy, tick } from 'svelte';
 
@@ -70,37 +72,24 @@
   let isZoomed = $state(false);
   let suppressSettleReport = false;
 
-  /**
-   * Cross-axis alignment as a pure function of measured geometry: top-align
-   * whenever the strip's visual height exceeds the container (otherwise the
-   * top edge overflows past the unreachable block-start edge), center it
-   * otherwise. Applied imperatively so the zoom frame step measures
-   * post-alignment layout in the same task — Svelte-state flips flush
-   * asynchronously and caused the old settle jump.
-   */
-  function applyAlignment(zoom: number) {
-    if (!scrollContainer || !zoomSpacerEl || !zoomWrapperEl) return;
-    const visualHeight = zoomWrapperEl.offsetHeight * zoom;
-    const align = visualHeight > scrollContainer.clientHeight + 1 ? 'flex-start' : 'center';
-    scrollContainer.style.alignItems = align;
-    zoomSpacerEl.style.alignItems = align;
+  // Reader-specific zoomed layout (transform origin per direction, spacer
+  // dims, measured cross-axis alignment) — shared with the e2e suite, see
+  // zoom-layout.ts
+  function applyZoomLayout(zoom: number) {
+    if (!zoomWrapperEl || !zoomSpacerEl || !scrollContainer) return;
+    applyHorizontalZoomLayout(
+      { wrapper: zoomWrapperEl, spacer: zoomSpacerEl, container: scrollContainer },
+      rtl,
+      zoom
+    );
   }
 
-  function applyZoomLayout(zoom: number) {
-    if (!zoomWrapperEl || !zoomSpacerEl) return;
-    if (zoom > 1) {
-      // Spacer covers the strip's visual extent so the scroll range never
-      // depends on transformed-overflow contribution. The wrapper is a
-      // content-sized flex item, so its layout dims are zoom-invariant.
-      zoomSpacerEl.style.width = `${zoomWrapperEl.offsetWidth * zoom}px`;
-      zoomSpacerEl.style.height = `${zoomWrapperEl.offsetHeight * zoom}px`;
-      zoomWrapperEl.style.transform = `scale(${zoom})`;
-    } else {
-      zoomWrapperEl.style.transform = '';
-      zoomSpacerEl.style.width = '';
-      zoomSpacerEl.style.height = '';
-    }
-    applyAlignment(zoom);
+  function applyAlignment(zoom: number) {
+    if (!zoomWrapperEl || !zoomSpacerEl || !scrollContainer) return;
+    applyHorizontalAlignment(
+      { wrapper: zoomWrapperEl, spacer: zoomSpacerEl, container: scrollContainer },
+      zoom
+    );
   }
 
   function handleZoomSettled(zoom: number) {
@@ -111,11 +100,14 @@
         scrollContainer.scrollTop = 0;
       }
     }
-    // An interrupted keyboard nav refers to a destination never reached —
-    // re-detect from real geometry.
-    navTarget = detectCurrentPage();
-    navIsKeyboard = false;
-    if (!suppressSettleReport) reportProgress();
+    // Suppressed settles (nav interrupts, resets) are followed by their own
+    // navTarget update against restored geometry — detection here would read
+    // the shifted layout and land on a garbage page.
+    if (!suppressSettleReport) {
+      navTarget = detectCurrentPage();
+      navIsKeyboard = false;
+      reportProgress();
+    }
   }
 
   const zoomController = new ContinuousZoomController({
@@ -132,23 +124,43 @@
   /**
    * Finish an in-flight zoom before a competing scroll intent (keyboard nav,
    * external page change) so it acts on settled geometry. The settle report
-   * is suppressed — the navigation is about to change the page anyway.
+   * is suppressed — the navigation is about to change the page anyway —
+   * and the scroller adopts the corrected position (its state only syncs
+   * via async scroll events; without this the next scrollBy would animate
+   * from a stale position and undo the zoom's final correction).
    */
   function interruptZoomForNav() {
     if (!zoomController.isActive) return;
     suppressSettleReport = true;
     zoomController.finishNow();
     suppressSettleReport = false;
+    scroller?.sync();
+    navIsKeyboard = false;
   }
 
-  // When zoom mode changes (Z key), stay on the current page
-  let prevZoomMode = $settings.continuousZoomDefault;
-  $effect(() => {
-    if (zoomMode === prevZoomMode) return;
-    prevZoomMode = zoomMode;
-
+  /**
+   * Instant zoom reset with the settle report suppressed: reset() skips the
+   * anchor correction, so the scroll offset is stale zoomed-space garbage —
+   * detection would land pages ahead and corrupt progress before the caller
+   * re-anchors to the page it captured.
+   */
+  function resetZoom() {
+    suppressSettleReport = true;
     zoomController.reset();
+    suppressSettleReport = false;
+  }
+
+  // When the zoom mode (Z key) or a layout-affecting setting changes, reset
+  // any user zoom (its measured spacer/transform are stale against the new
+  // layout) and stay on the current page.
+  let prevLayoutKey = `${$settings.continuousZoomDefault}|${$settings.pageDividers}|${$settings.scrollGap}|${volumeSettings.rightToLeft ?? true}`;
+  $effect(() => {
+    const layoutKey = `${zoomMode}|${$settings.pageDividers}|${$settings.scrollGap}|${rtl}`;
+    if (layoutKey === prevLayoutKey) return;
+    prevLayoutKey = layoutKey;
+
     const pageIdx = lastReportedPage - 1;
+    resetZoom();
     tick().then(() => {
       applyAlignment(1);
       const el = pageElements[pageIdx];
@@ -167,59 +179,17 @@
   let pageElements: HTMLDivElement[] = [];
 
   /**
-   * Check how much of a page is visible in the viewport (0-1 ratio).
-   */
-  function visibilityRatio(el: HTMLElement, containerRect: DOMRect): number {
-    const rect = el.getBoundingClientRect();
-    if (rect.width <= 0) return 0;
-    const visibleLeft = Math.max(rect.left, containerRect.left);
-    const visibleRight = Math.min(rect.right, containerRect.right);
-    return Math.max(0, visibleRight - visibleLeft) / rect.width;
-  }
-
-  /**
    * Detect current page: the >95% visible page whose center is closest
    * to the viewport center. Falls back to any page with center in viewport.
+   * Pure rect math in visual space — correct at any zoom (page-detection.ts).
    */
   function detectCurrentPage(): number {
     if (!scrollContainer) return navTarget;
-    const containerRect = scrollContainer.getBoundingClientRect();
-    const viewportCenter = containerRect.left + containerRect.width / 2;
-
-    // Primary: among >95% visible pages, pick the one closest to viewport center
-    let bestIdx = -1;
-    let bestDist = Infinity;
-    for (let i = 0; i < pageElements.length; i++) {
-      const el = pageElements[i];
-      if (!el) continue;
-      if (visibilityRatio(el, containerRect) > 0.95) {
-        const rect = el.getBoundingClientRect();
-        const centerX = rect.left + rect.width / 2;
-        const dist = Math.abs(centerX - viewportCenter);
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestIdx = i;
-        }
-      }
-    }
-    if (bestIdx >= 0) return bestIdx;
-
-    // Fallback: page with center closest to viewport center
-    for (let i = 0; i < pageElements.length; i++) {
-      const el = pageElements[i];
-      if (!el) continue;
-      const rect = el.getBoundingClientRect();
-      const centerX = rect.left + rect.width / 2;
-      if (centerX >= containerRect.left && centerX <= containerRect.right) {
-        const dist = Math.abs(centerX - viewportCenter);
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestIdx = i;
-        }
-      }
-    }
-
-    return bestIdx >= 0 ? bestIdx : navTarget;
+    return detectHorizontalPage(
+      scrollContainer.getBoundingClientRect(),
+      pageElements.map((el) => el?.getBoundingClientRect()),
+      navTarget
+    );
   }
 
   function reportProgress() {
@@ -239,7 +209,7 @@
       for (let i = 0; i < pageElements.length; i++) {
         const el = pageElements[i];
         if (!el) continue;
-        if (visibilityRatio(el, containerRect) > 0.95) count++;
+        if (horizontalVisibilityRatio(el.getBoundingClientRect(), containerRect) > 0.95) count++;
       }
       onVisibleCountChange(Math.max(count, 1));
     }
@@ -395,6 +365,9 @@
     if (wheelIntentIsZoom(modifier, $settings.swapWheelBehavior)) {
       e.preventDefault();
       scroller?.stop();
+      // A held-button drag would keep writing absolute positions from its
+      // pre-zoom baseline, fighting the correction frames.
+      isDragging = false;
       zoomController.wheelZoom(e);
       return;
     }
@@ -572,9 +545,9 @@
   // ============================================================
 
   function handleResize() {
-    zoomController.reset();
     const wasLandscape = viewportWidth > viewportHeight;
     const pageIdx = lastReportedPage - 1;
+    resetZoom();
     viewportWidth = window.innerWidth;
     viewportHeight = window.innerHeight;
     const isLandscape = viewportWidth > viewportHeight;
@@ -655,12 +628,12 @@
       style:direction={rtl ? 'rtl' : 'ltr'}
       style:filter={$imageFilter}
     >
+      <!-- transform-origin is set by applyHorizontalZoomLayout (top right in RTL) -->
       <div
         bind:this={zoomWrapperEl}
         class="flex"
         style:align-items="center"
         style:direction={rtl ? 'rtl' : 'ltr'}
-        style:transform-origin={rtl ? 'top right' : 'top left'}
       >
         <!-- Centering spacer: allows first page to be centered -->
         <div class="flex-shrink-0" style:width="50vw"></div>

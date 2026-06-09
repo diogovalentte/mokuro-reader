@@ -219,9 +219,9 @@ Tracked per volume in the `volumes` store:
 
 The reader has complex text selection logic to prevent interference with drag panning:
 
-- `beforeMouseDown` handler in MangaPage.svelte checks if click is on text
+- Pointer handlers skip pan initiation for `.textBox` targets (PagedViewport.svelte and the scroll readers), so text selection works inside boxes
+- Double-clicking text to select it does not trigger zoom (`.textBox` guard in Reader's onDoubleTap)
 - Text selection is only allowed within text boxes, not on background
-- See `src/routes/[manga]/[volume]/+page.svelte` for implementation
 
 ### Modal Button Z-Index
 

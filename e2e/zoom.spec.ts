@@ -387,30 +387,22 @@ async function setupPagedWorld(page: Page, opts: { rtl: boolean; mode: string })
       getViewport: () => ({ width: innerWidth, height: innerHeight })
     });
 
-    function applyBase(content: { width: number; height: number }, keep: boolean) {
-      const viewport = { width: innerWidth, height: innerHeight };
-      const oldBase = state.baseScale;
-      const oldLevel = controller.currentZoom;
-      controller.finishNow();
-      const base = layout.baseTransform(state.mode, content, viewport, state.rtl);
+    // Drive the REAL shared orchestration (the same function PagedViewport
+    // uses) — a local mirror would hide wiring bugs from the suite.
+    const sessionState = session.createSessionState();
+    function applyBase(content: { width: number; height: number }) {
       state.content = content;
-      state.fitScale = Math.min(viewport.width / content.width, viewport.height / content.height);
-      state.baseScale = base.scale;
-      const levels = session.pagedLevels(state.baseScale, state.fitScale);
-      const level = keep
-        ? session.convertLevelAcrossBases(
-            oldLevel,
-            oldBase,
-            state.baseScale,
-            levels[0],
-            levels[levels.length - 1]
-          )
-        : 1;
-      camera.applyBase(content, base);
-      controller.snapToLevel(level);
-      camera.place();
+      session.applyPagedBase(
+        { camera, controller, state: sessionState },
+        state.mode,
+        content,
+        { width: innerWidth, height: innerHeight },
+        state.rtl
+      );
+      state.baseScale = sessionState.baseScale;
+      state.fitScale = sessionState.fitScale;
     }
-    applyBase(state.content, false);
+    applyBase(state.content);
 
     w.__paged = {
       camera,
@@ -559,7 +551,7 @@ test('paged keepZoom: effective scale survives a content swap (spread)', async (
 
     // Swap to a spread (double width) with keepZoom conversion
     z.pageEl.style.width = '2800px';
-    z.applyBase({ width: 2800, height: 2000 }, true);
+    z.applyBase({ width: 2800, height: 2000 });
     const effectiveAfter = z.state.baseScale * z.controller.currentZoom;
 
     return { effectiveBefore, effectiveAfter };

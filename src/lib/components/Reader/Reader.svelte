@@ -929,7 +929,7 @@
   let notificationKey = $state<string>('');
   let notificationTimeout: number | undefined = undefined;
 
-  // Context menu state (rendered outside panzoom for correct positioning)
+  // Context menu state (rendered outside the zoom wrapper for correct positioning)
   interface ContextMenuData {
     x: number;
     y: number;
@@ -1396,7 +1396,11 @@
   {:else}
     <!-- Page-based mode -->
     <div class="flex" style:background-color="var(--reader-bg)">
-      <PagedViewport contentSize={pagedContentSize} rtl={volumeSettings.rightToLeft ?? true}>
+      <PagedViewport
+        contentSize={pagedContentSize}
+        pageKey={page}
+        rtl={volumeSettings.rightToLeft ?? true}
+      >
         <button
           aria-label="Previous page (left edge)"
           class="fixed -left-full z-10 h-full w-full opacity-[0.01] hover:bg-slate-400"

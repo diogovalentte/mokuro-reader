@@ -666,3 +666,21 @@ describe('ZoomController — snapToLevel (additive)', () => {
     expect(settled).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('ZoomController — snapToLevel anchor skip (regression pin)', () => {
+  it('leaves scroll untouched when interrupting a live anchored gesture', () => {
+    const world = tallPageWorld();
+    const c = makeController(world);
+
+    c.toggleZoom(300, 500);
+    pump(3); // anchor is live, correction in flight
+    const before = { left: world.scrollLeft, top: world.scrollTop };
+
+    c.snapToLevel(1.5);
+    // Layout placement only — a stale-anchor correction here would teleport
+    // the view toward the abandoned gesture's target point.
+    expect(world.scrollLeft).toBe(before.left);
+    expect(world.scrollTop).toBe(before.top);
+    expect(c.currentZoom).toBe(1.5);
+  });
+});

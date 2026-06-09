@@ -105,6 +105,9 @@ export class PagedCamera {
     this.tx = alignPosition(this.base.alignX, scaled.width, viewport.width);
     this.ty = alignPosition(this.base.alignY, scaled.height, viewport.height);
     this.clampAndRender(true);
+    // A freshly placed page is at rest — settle so the alignment position is
+    // device-pixel rounded (#65 applies before any gesture too).
+    this.settle();
   }
 
   /** Set the user zoom multiplier (controller frame step). Clamps and renders. */
@@ -148,14 +151,19 @@ export class PagedCamera {
 
   /**
    * Round the settled translate to device pixels — fractional translates
-   * produce a 1-px white compositor seam in Chrome (#65).
+   * produce a 1-px white compositor seam in Chrome (#65). Clamp FIRST, then
+   * round, then render without re-clamping: the clamp's alignment locks on
+   * fitting axes return unrounded positions (e.g. a fractional center), and
+   * re-clamping after rounding would clobber the rounding for exactly the
+   * image-smaller-than-viewport case #65 is about.
    */
   settle(): void {
     const dpr = this.config.getDevicePixelRatio?.() ?? 1;
-    this.tx = Math.round(this.tx * dpr) / dpr;
-    this.ty = Math.round(this.ty * dpr) / dpr;
+    const c = this.clamped({ x: this.tx, y: this.ty });
+    this.tx = Math.round(c.x * dpr) / dpr;
+    this.ty = Math.round(c.y * dpr) / dpr;
     this.syncPan();
-    this.clampAndRender(false);
+    this.render();
   }
 
   /** Hidden-content edge state for swipe-to-flip gating (issue #186). */
@@ -193,7 +201,10 @@ export class PagedCamera {
     this.tx = c.x;
     this.ty = c.y;
     if (resyncPan) this.syncPan();
+    this.render();
+  }
 
+  private render(): void {
     const wrapper = this.config.getWrapper();
     if (!wrapper) return;
     wrapper.style.transformOrigin = '0 0';

@@ -15,6 +15,10 @@
  * clamped into the new ladder's range.
  */
 
+import { baseTransform, type Size } from './paged-zoom-layout';
+import type { PagedCamera } from './paged-camera';
+import type { ContinuousZoomController } from './zoom-controller';
+
 const EPS = 0.001;
 
 /** Sorted, deduped level ladder for a page context. */
@@ -51,4 +55,72 @@ export function convertLevelAcrossBases(
   if (!(oldBase > 0) || !(newBase > 0)) return Math.max(floor, Math.min(top, 1));
   const converted = (level * oldBase) / newBase;
   return Math.max(floor, Math.min(top, converted));
+}
+
+// ============================================================
+// Base-application orchestration
+// ============================================================
+
+export interface PagedZoomSessionState {
+  baseScale: number;
+  fitScale: number;
+  initialized: boolean;
+}
+
+export function createSessionState(): PagedZoomSessionState {
+  return { baseScale: 1, fitScale: 1, initialized: false };
+}
+
+/** keepZoom and its legacy persisted aliases (localStorage / synced profiles). */
+export function isKeepZoomMode(mode: string): boolean {
+  return mode === 'keepZoom' || mode === 'keepZoomStart' || mode === 'keepZoomTopCorner';
+}
+
+/**
+ * Apply a mode base for the given content/viewport: finish any in-flight
+ * gesture, recompute the ladder, convert (keepZoom) or reset the user level,
+ * and place the view. Instant — never animated. Shared verbatim by
+ * PagedViewport and the e2e suite so the orchestration cannot silently
+ * diverge from what's tested.
+ */
+export function applyPagedBase(
+  deps: {
+    camera: PagedCamera;
+    controller: ContinuousZoomController;
+    state: PagedZoomSessionState;
+  },
+  mode: string,
+  content: Size,
+  viewport: Size,
+  rtl: boolean
+): void {
+  const { camera, controller, state } = deps;
+  if (!(content.width > 0) || !(content.height > 0)) return;
+
+  const oldBaseScale = state.baseScale;
+  controller.finishNow();
+  // Read the level after finishNow — mid-animation it would be a transient
+  // value between levels; finishNow settles it at the gesture's target.
+  const oldLevel = controller.currentZoom;
+
+  const base = baseTransform(mode, content, viewport, rtl);
+  state.fitScale = Math.min(viewport.width / content.width, viewport.height / content.height);
+  state.baseScale = base.scale;
+
+  const levels = pagedLevels(state.baseScale, state.fitScale);
+  const level =
+    isKeepZoomMode(mode) && state.initialized
+      ? convertLevelAcrossBases(
+          oldLevel,
+          oldBaseScale,
+          state.baseScale,
+          levels[0],
+          levels[levels.length - 1]
+        )
+      : 1;
+
+  camera.applyBase(content, base);
+  controller.snapToLevel(level);
+  camera.place();
+  state.initialized = true;
 }

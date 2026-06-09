@@ -4,9 +4,10 @@
   import { settings } from '$lib/settings';
   import { PagedCamera } from '$lib/reader/paged-camera';
   import { ContinuousZoomController } from '$lib/reader/zoom-controller';
-  import { baseTransform, type Size } from '$lib/reader/paged-zoom-layout';
+  import type { Size } from '$lib/reader/paged-zoom-layout';
   import {
-    convertLevelAcrossBases,
+    applyPagedBase,
+    createSessionState,
     doubleTapTarget,
     pagedLevels
   } from '$lib/reader/paged-zoom-session';
@@ -16,21 +17,25 @@
   interface Props {
     /** Native pixel size of the displayed page or pair — from page data, not DOM. */
     contentSize: Size;
+    /**
+     * Identity of the displayed content (e.g. the page index). Manga pages
+     * are overwhelmingly uniform in size, so the base must re-apply on page
+     * turns even when the dimensions don't change.
+     */
+    pageKey: number | string;
     rtl: boolean;
     children?: Snippet;
   }
 
-  let { contentSize, rtl, children }: Props = $props();
+  let { contentSize, pageKey, rtl, children }: Props = $props();
 
   let wrapperEl: HTMLDivElement | undefined = $state();
   let viewportWidth = $state(typeof window !== 'undefined' ? window.innerWidth : 1024);
   let viewportHeight = $state(typeof window !== 'undefined' ? window.innerHeight : 768);
 
-  // Session state for the controller's dynamic level ladder (plain vars —
+  // Session state for the controller's dynamic level ladder (plain object —
   // read by closures at call time, never rendered).
-  let baseScale = 1;
-  let fitScale = 1;
-  let initialized = false;
+  const session = createSessionState();
 
   const camera = new PagedCamera({
     getWrapper: () => wrapperEl,
@@ -41,56 +46,47 @@
 
   const controller = new ContinuousZoomController({
     surface: camera.surface(),
-    getLevels: () => pagedLevels(baseScale, fitScale),
-    getPageElements: () =>
-      wrapperEl ? [...wrapperEl.querySelectorAll<HTMLElement>('[data-page-index]')] : [],
+    getLevels: () => pagedLevels(session.baseScale, session.fitScale),
+    getPageElements: () => {
+      // During a {#key page} transition both the outgoing and incoming trees
+      // are in the DOM; anchor only to the live (last) tree's pages.
+      if (!wrapperEl) return [];
+      const all = [...wrapperEl.querySelectorAll<HTMLElement>('[data-page-index]')];
+      if (all.length === 0) return all;
+      const liveTree = all[all.length - 1].closest('.col-start-1');
+      return liveTree ? all.filter((el) => el.closest('.col-start-1') === liveTree) : all;
+    },
     getViewport: () => ({ width: viewportWidth, height: viewportHeight }),
     onSettled: () => camera.settle()
   });
 
-  /**
-   * Apply the mode base for the current content/viewport. keepZoom converts
-   * the user level so the effective on-screen scale is preserved (page
-   * turns, spreads, resize, and KeyZ entry alike); other modes reset to 1.
-   * Always instant — never animated.
-   */
   function applyBase(mode: string) {
-    if (!(contentSize.width > 0) || !(contentSize.height > 0)) return;
-    const viewport = { width: viewportWidth, height: viewportHeight };
-
-    const oldBaseScale = baseScale;
-    const oldLevel = controller.currentZoom;
-    controller.finishNow();
-
-    const base = baseTransform(mode, contentSize, viewport, rtl);
-    fitScale = Math.min(viewport.width / contentSize.width, viewport.height / contentSize.height);
-    baseScale = base.scale;
-
-    const levels = pagedLevels(baseScale, fitScale);
-    const floor = levels[0];
-    const top = levels[levels.length - 1];
-    const isKeep = mode === 'keepZoom' || mode === 'keepZoomStart' || mode === 'keepZoomTopCorner';
-    const level =
-      isKeep && initialized
-        ? convertLevelAcrossBases(oldLevel, oldBaseScale, baseScale, floor, top)
-        : 1;
-
-    camera.applyBase(contentSize, base);
-    controller.snapToLevel(level);
-    camera.place();
-    initialized = true;
+    applyPagedBase(
+      { camera, controller, state: session },
+      mode,
+      contentSize,
+      { width: viewportWidth, height: viewportHeight },
+      rtl
+    );
   }
 
-  // Re-apply on content / mode / viewport / direction changes. The base is
-  // computed from page data, so the {#key page} transition overlap (both
-  // trees in the DOM for ~300 ms) can't skew it.
+  // Re-apply on page-identity / content / mode / viewport / direction
+  // changes. The base is computed from page data, so the {#key page}
+  // transition overlap can't skew it; pageKey makes uniform-dimension page
+  // turns (the normal manga case) re-apply too.
   let lastSig = '';
   $effect(() => {
     const mode = $settings.zoomDefault as string;
-    const sig = `${contentSize.width}x${contentSize.height}|${mode}|${viewportWidth}x${viewportHeight}|${rtl}`;
+    const sig = `${pageKey}|${contentSize.width}x${contentSize.height}|${mode}|${viewportWidth}x${viewportHeight}|${rtl}`;
     if (sig === lastSig) return;
     lastSig = sig;
     applyBase(mode);
+  });
+
+  // Enabling bounds/mobile mid-session must clamp the current view
+  // immediately — the camera reads the gate lazily, only on mutations.
+  $effect(() => {
+    if ($settings.bounds || $settings.mobile) camera.settle();
   });
 
   function handleResize() {
@@ -116,7 +112,7 @@
   }
 
   function doubleTap(x: number, y: number) {
-    const levels = pagedLevels(baseScale, fitScale);
+    const levels = pagedLevels(session.baseScale, session.fitScale);
     const target = doubleTapTarget(controller.currentZoom, levels[0]);
     camera.stopPan();
     controller.animateToLevel(
@@ -127,19 +123,23 @@
   }
 
   function scrollImage(direction: 'up' | 'down') {
+    // A running zoom animation owns the camera — finish it first or its
+    // per-frame corrections stomp the pan.
+    if (controller.isActive) controller.finishNow();
     const amount = viewportHeight * 0.75;
     camera.panBy(0, direction === 'down' ? -amount : amount);
   }
 
   function zoomFitToScreen() {
-    const viewport = { width: viewportWidth, height: viewportHeight };
-    const base = baseTransform('zoomFitToScreen', contentSize, viewport, rtl);
-    fitScale = Math.min(viewport.width / contentSize.width, viewport.height / contentSize.height);
-    baseScale = base.scale;
-    controller.finishNow();
-    camera.applyBase(contentSize, base);
-    controller.snapToLevel(1);
-    camera.place();
+    // Show the whole page without changing the persisted mode — the next
+    // page turn re-applies the user's zoomDefault.
+    applyPagedBase(
+      { camera, controller, state: session },
+      'zoomFitToScreen',
+      contentSize,
+      { width: viewportWidth, height: viewportHeight },
+      rtl
+    );
   }
 
   const api: PagedZoomApi = {
@@ -218,6 +218,10 @@
     }
 
     if (activePointers.size >= 2) {
+      // A base re-application mid-pinch (rotation, page change) clears the
+      // controller's pinch state — re-baseline on the next move so the
+      // gesture stays alive instead of dying until fingers re-press.
+      if (!controller.isActive) controller.pinchStart(points());
       controller.pinchMove(points());
       return;
     }
@@ -307,7 +311,15 @@
   });
 </script>
 
-<svelte:window onresize={handleResize} />
+<!-- pointerup/cancel listen on the window: an uncaptured release outside the
+     wrapper (text-selection drag ending over an overlay, right-click menus)
+     must still clean the pointer map, or the next mixed-input press would be
+     misread as a pinch with a phantom stale point. -->
+<svelte:window
+  onresize={handleResize}
+  onpointerup={handlePointerUp}
+  onpointercancel={handlePointerUp}
+/>
 
 <div
   bind:this={wrapperEl}
@@ -315,8 +327,6 @@
   style:touch-action="none"
   onpointerdown={handlePointerDown}
   onpointermove={handlePointerMove}
-  onpointerup={handlePointerUp}
-  onpointercancel={handlePointerUp}
   role="none"
 >
   {@render children?.()}

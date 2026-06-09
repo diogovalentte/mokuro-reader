@@ -499,3 +499,135 @@ describe('ContinuousZoomController — geometry robustness', () => {
     expect(settled).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('ZoomController — surface abstraction (additive)', () => {
+  it('drives a custom ZoomSurface instead of a scroll container', () => {
+    const world = tallPageWorld();
+    const calls: string[] = [];
+    const c = new ContinuousZoomController({
+      surface: {
+        isReady: () => true,
+        applyZoomLayout: (z) => {
+          world.zoom = z;
+          calls.push(`layout:${z.toFixed(2)}`);
+        },
+        syncLayout: () => calls.push('sync'),
+        correctView: (dx, dy) => {
+          world.container.scrollLeft += dx;
+          world.container.scrollTop += dy;
+          calls.push('correct');
+        }
+      },
+      getPageElements: () => world.pageEls.list(),
+      getViewport: () => world.viewport
+    });
+
+    c.pinchStart([
+      { x: 400, y: 400 },
+      { x: 600, y: 400 }
+    ]);
+    c.pinchMove([
+      { x: 350, y: 380 },
+      { x: 750, y: 380 }
+    ]);
+
+    expect(world.zoom).toBe(2);
+    expect(world.scrollLeft).toBeCloseTo(450, 4);
+    expect(world.scrollTop).toBeCloseTo(1020, 4);
+    expect(calls).toContain('sync');
+    expect(calls).toContain('correct');
+  });
+
+  it('skips frames while the surface is not ready', () => {
+    const world = tallPageWorld();
+    let ready = false;
+    const c = new ContinuousZoomController({
+      surface: {
+        isReady: () => ready,
+        applyZoomLayout: (z) => {
+          world.zoom = z;
+        },
+        syncLayout: () => {},
+        correctView: (dx, dy) => {
+          world.container.scrollLeft += dx;
+          world.container.scrollTop += dy;
+        }
+      },
+      getPageElements: () => world.pageEls.list(),
+      getViewport: () => world.viewport
+    });
+
+    c.pinchStart([
+      { x: 400, y: 400 },
+      { x: 600, y: 400 }
+    ]);
+    c.pinchMove([
+      { x: 300, y: 400 },
+      { x: 700, y: 400 }
+    ]);
+    expect(world.zoom).toBe(1); // layout never applied
+
+    ready = true;
+    c.pinchMove([
+      { x: 300, y: 400 },
+      { x: 700, y: 400 }
+    ]);
+    expect(world.zoom).toBe(2);
+  });
+
+  it('drops a detached anchor (zero rect) instead of applying a garbage correction', () => {
+    const world = tallPageWorld();
+    const c = makeController(world);
+
+    c.toggleZoom(300, 500);
+    pump(3);
+    const midLeft = world.scrollLeft;
+    const midTop = world.scrollTop;
+
+    // Simulate the {#key} swap destroying the anchored page mid-animation:
+    // a detached element measures as an all-zero rect
+    world.pages[0] = { x: 0, y: 0, w: 0, h: 0 };
+    pump();
+
+    // Zoom finishes but no zero-rect "correction" teleports the view
+    expect(c.currentZoom).toBe(2);
+    expect(Math.abs(world.scrollLeft - midLeft)).toBeLessThan(200);
+    expect(Math.abs(world.scrollTop - midTop)).toBeLessThan(200);
+  });
+
+  it('reads dynamic levels from getLevels on every step', () => {
+    const world = tallPageWorld();
+    let levels: number[] = [0.5, 1, 2];
+    const c = new ContinuousZoomController({
+      getLevels: () => levels,
+      getScrollContainer: () => world.container,
+      getPageElements: () => world.pageEls.list(),
+      getViewport: () => world.viewport,
+      applyZoomLayout: (z) => {
+        world.zoom = z;
+      }
+    });
+
+    c.wheelZoom({ deltaY: -120, deltaMode: 0, clientX: 500, clientY: 400, timeStamp: 1000 });
+    pump();
+    expect(c.currentZoom).toBe(2); // 1 -> 2 with the dynamic list
+
+    levels = [0.5, 1, 2, 4];
+    c.wheelZoom({ deltaY: -120, deltaMode: 0, clientX: 500, clientY: 400, timeStamp: 2000 });
+    pump();
+    expect(c.currentZoom).toBe(4);
+
+    c.wheelZoom({ deltaY: 240, deltaMode: 0, clientX: 500, clientY: 400, timeStamp: 3000 });
+    pump();
+    expect(c.currentZoom).toBe(1);
+  });
+
+  it('animateToLevel lands content sampled at from on the to point', () => {
+    const world = tallPageWorld();
+    const c = makeController(world);
+
+    c.animateToLevel(0.9, { x: 300, y: 500 }, { x: 500, y: 400 });
+    pump();
+    expect(c.currentZoom).toBeCloseTo(0.9, 6);
+  });
+});

@@ -1044,6 +1044,11 @@
     const tier4Badges = ['¼ Native', 'Consistent Reader', 'Quarter Million', '25 Hour Reader'];
     if (tier4Badges.includes(badge)) return 'badge-tier-gold';
 
+    // Tier 5 (Platinum) - hard-coded blue so it never follows the theme's
+    // remapped --color-blue scale (the bare Flowbite blue badge does).
+    const tier5Badges = ['⅜ Native', 'Dedicated Reader', 'Half Million', '50 Hour Reader'];
+    if (tier5Badges.includes(badge)) return 'badge-tier-platinum';
+
     // Tier 6 (Prestige Bronze)
     const tier6Badges = ['½ Native', 'Veteran Reader', '100 Hour Reader', 'Million Club'];
     if (tier6Badges.includes(badge)) return 'badge-tier-bronze';

@@ -333,13 +333,25 @@ export class ContinuousZoomController {
 
   /** Instantly return to 1× (zoom-mode change, viewport resize). */
   reset(): void {
-    this.pinching = false;
-    this.target = 1;
-    this.anchorEl = null; // skip anchor correction; layout cleanup only
-    if (this.animator.current !== 1 || this.animator.isAnimating) {
-      this.animator.snapTo(1);
-      this.settle();
+    if (this.animator.current === 1 && !this.animator.isAnimating && !this.pinching) {
+      this.target = 1;
+      return;
     }
+    this.snapToLevel(1);
+  }
+
+  /**
+   * Apply a level instantly with no anchor correction (layout only) and
+   * settle. Paged mode re-applies a preserved keepZoom level this way on
+   * page turns — animating 1×→3× on every flip would be a constant
+   * annoyance.
+   */
+  snapToLevel(level: number): void {
+    this.pinching = false;
+    this.target = level;
+    this.anchorEl = null; // skip anchor correction; layout placement only
+    this.animator.snapTo(level);
+    this.settle();
   }
 
   destroy(): void {

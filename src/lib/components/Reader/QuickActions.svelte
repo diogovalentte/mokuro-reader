@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { toggleFullScreen, zoomFitToScreen } from '$lib/panzoom';
+  import { toggleFullScreen } from '$lib/util/fullscreen';
+  import { pagedZoom } from '$lib/reader/paged-zoom';
   import { settings, volumes } from '$lib/settings';
   import {
     ArrowLeftOutline,
@@ -48,7 +49,7 @@
   let open = $state(false);
 
   function handleZoom() {
-    zoomFitToScreen();
+    $pagedZoom?.zoomFitToScreen();
     open = false;
   }
 

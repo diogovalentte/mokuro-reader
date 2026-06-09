@@ -631,3 +631,38 @@ describe('ZoomController — surface abstraction (additive)', () => {
     expect(c.currentZoom).toBeCloseTo(0.9, 6);
   });
 });
+
+describe('ZoomController — snapToLevel (additive)', () => {
+  it('applies the level instantly, settles once, and skips anchor correction', () => {
+    const world = tallPageWorld();
+    const settled = vi.fn();
+    const c = makeController(world, { settled });
+
+    const before = { left: world.scrollLeft, top: world.scrollTop };
+    c.snapToLevel(2.5);
+
+    expect(c.currentZoom).toBe(2.5);
+    expect(c.zoomTarget).toBe(2.5);
+    expect(world.zoom).toBe(2.5);
+    expect(settled).toHaveBeenCalledTimes(1);
+    expect(settled).toHaveBeenCalledWith(2.5);
+    // layout placement only — no anchor-driven scroll writes
+    expect(world.scrollLeft).toBe(before.left);
+    expect(world.scrollTop).toBe(before.top);
+    expect(c.isActive).toBe(false);
+  });
+
+  it('interrupts an in-flight animation cleanly', () => {
+    const world = tallPageWorld();
+    const settled = vi.fn();
+    const c = makeController(world, { settled });
+
+    c.toggleZoom(300, 500);
+    pump(3);
+    c.snapToLevel(1.5);
+    pump();
+
+    expect(c.currentZoom).toBe(1.5);
+    expect(settled).toHaveBeenCalledTimes(1);
+  });
+});

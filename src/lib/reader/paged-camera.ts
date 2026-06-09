@@ -94,11 +94,16 @@ export class PagedCamera {
   applyBase(content: Size, base: BaseLayout): void {
     this.content = content;
     this.base = base;
+    this.place();
+  }
+
+  /** Re-place the view at the base alignment for the current user zoom. */
+  place(): void {
     this.stopPan();
     const scaled = this.scaledSize();
     const viewport = this.config.getViewport();
-    this.tx = alignPosition(base.alignX, scaled.width, viewport.width);
-    this.ty = alignPosition(base.alignY, scaled.height, viewport.height);
+    this.tx = alignPosition(this.base.alignX, scaled.width, viewport.width);
+    this.ty = alignPosition(this.base.alignY, scaled.height, viewport.height);
     this.clampAndRender(true);
   }
 

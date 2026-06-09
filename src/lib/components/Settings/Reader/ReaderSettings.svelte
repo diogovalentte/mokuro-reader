@@ -13,7 +13,6 @@
     type PageViewMode,
     type VolumeSettingsKey
   } from '$lib/settings';
-  import { zoomDefault } from '$lib/panzoom';
   import { isReader } from '$lib/util';
   import { routeParams } from '$lib/util/hash-router';
 
@@ -60,7 +59,6 @@
   function onPageViewModeChange(event: Event) {
     const target = event.target as HTMLSelectElement;
     updateSetting('singlePageView', target.value as PageViewMode);
-    zoomDefault();
   }
 
   function onVolumeToggle(key: VolumeSettingsKey, value: any) {
@@ -69,7 +67,6 @@
       updateVolumeSetting(volumeId, key, !value);
       const pageClamped = Math.max($volumes[volumeId].progress - 1, 1);
       updateProgress(volumeId, pageClamped);
-      zoomDefault();
     } else {
       updateVolumeSetting(volumeId, key, !value);
     }

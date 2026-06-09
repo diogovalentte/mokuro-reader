@@ -3,17 +3,9 @@
   import type { TransitionConfig } from 'svelte/transition';
 
   import { currentSeries, currentVolume, currentVolumeData } from '$lib/catalog';
-  import {
-    Panzoom,
-    panzoomStore,
-    scrollImage,
-    toggleFullScreen,
-    zoomDefault,
-    zoomDefaultWithLayoutWait,
-    zoomFitToScreen,
-    getHorizontalPanEdgeState,
-    handleWheel as panzoomHandleWheel
-  } from '$lib/panzoom';
+  import PagedViewport from './PagedViewport.svelte';
+  import { pagedZoom } from '$lib/reader/paged-zoom';
+  import { toggleFullScreen } from '$lib/util/fullscreen';
   import {
     effectiveVolumeSettings,
     imageFilter,
@@ -124,7 +116,8 @@
     updateVolumeSetting(volumeId, 'hasCover', !volumeSettings.hasCover);
     const pageClamped = Math.max($volumes[volumeId].progress - 1, 1);
     updateProgress(volumeId, pageClamped);
-    zoomDefault();
+    // The paged viewport re-applies its base when the displayed content
+    // changes (hasCover flows into the content-size prop).
   }
 
   function left(_e: any, ingoreTimeOut?: boolean) {
@@ -382,7 +375,7 @@
         left(event, true);
         return;
       case 'ArrowUp':
-        scrollImage('up');
+        $pagedZoom?.scrollImage('up');
         return;
       case 'PageUp':
         navigateBackward(true);
@@ -391,7 +384,7 @@
         right(event, true);
         return;
       case 'ArrowDown':
-        scrollImage('down');
+        $pagedZoom?.scrollImage('down');
         return;
       case 'PageDown':
       case 'Space':
@@ -486,7 +479,7 @@
     // Snapshot how much pannable content exists in each horizontal direction
     // right now, so that a subsequent swipe can be classified as either a
     // page-flip (only when already at the relevant edge) or an intra-page pan.
-    const edgeState = getHorizontalPanEdgeState();
+    const edgeState = $pagedZoom?.edgeState() ?? { canRevealLeft: false, canRevealRight: false };
     canRevealLeftAtStart = edgeState.canRevealLeft;
     canRevealRightAtStart = edgeState.canRevealRight;
   }
@@ -531,32 +524,25 @@
   }
 
   function onDoubleTap(event: MouseEvent) {
-    if ($panzoomStore) {
-      const { clientX, clientY } = event;
-      const { scale } = $panzoomStore.getTransform();
-
-      if (scale < 1) {
-        $panzoomStore.zoomTo(clientX, clientY, 1.5);
-      } else {
-        zoomFitToScreen();
-      }
-    }
+    // Double-clicking a word to select it shouldn't zoom.
+    if ((event.target as HTMLElement).closest('.textBox')) return;
+    $pagedZoom?.doubleTap(event.clientX, event.clientY);
   }
 
   // Wheel handler wrapper.
   // We only intercept wheel events that originate inside our reader content
-  // (the Panzoom wrapper marked with data-mokuro-reader). Anything else —
+  // (the paged viewport marked with data-mokuro-reader). Anything else —
   // settings drawer, popovers, dialogs, and extension overlays like Migaku
   // and Yomitan popups (which inject into <body>, often inside shadow DOM) —
   // is left alone so the browser's default scroll handling can apply.
   function handleWheelEvent(e: WheelEvent) {
-    // In continuous scroll mode, let ContinuousScrollReader handle wheel events
+    // In continuous scroll mode, let the scroll readers handle wheel events
     if ($settings.continuousScroll) return;
 
     const target = e.target as HTMLElement;
     if (!target.closest('[data-mokuro-reader]')) return;
 
-    panzoomHandleWheel(e);
+    $pagedZoom?.handleWheel(e);
   }
 
   onMount(() => {
@@ -592,27 +578,23 @@
     activityTracker.setTimeoutDuration($settings.inactivityTimeoutMinutes);
   });
 
-  // Apply zoom after page changes or settings changes
-  // This ensures proper scaling and centering when page dimensions or layout settings change
-  $effect(() => {
-    const pg = page;
+  // The paged viewport re-applies its base whenever the displayed content,
+  // zoom mode, viewport, or reading direction changes — driven by the
+  // pagedContentSize prop computed from page data (no DOM measurement, no
+  // layout waits).
+  let pagedContentSize = $derived.by(() => {
     const pgs = pages;
-    const pz = $panzoomStore;
-
-    // Add dependencies on settings that affect layout and zoom
-    const zoomMode = $settings.zoomDefault;
-    const pageMode = $settings.singlePageView;
-    const hasCover = volumeSettings.hasCover;
-    const rtl = volumeSettings.rightToLeft;
-
-    // Wait for all required data and panzoom instance to be ready
-    if (pg && pgs && pgs.length > 0 && pz) {
-      // Wait for Svelte DOM updates, then wait for browser layout reflow
-      // This is critical for auto page mode switching to have correct dimensions
-      tick().then(() => {
-        zoomDefaultWithLayoutWait();
-      });
+    const idx = index;
+    if (!pgs || pgs.length === 0 || !pgs[idx]) return { width: 0, height: 0 };
+    const first = pgs[idx];
+    if (showSecondPage() && pgs[idx + 1]) {
+      const second = pgs[idx + 1];
+      return {
+        width: first.img_width + second.img_width,
+        height: Math.max(first.img_height, second.img_height)
+      };
     }
+    return { width: first.img_width, height: first.img_height };
   });
 
   // Fire reader closed event when component is destroyed (navigating away)
@@ -1293,7 +1275,7 @@
   onresize={() => {
     windowWidth = window.innerWidth;
     windowHeight = window.innerHeight;
-    zoomDefaultWithLayoutWait();
+    // The paged viewport re-applies its base on resize internally.
   }}
   onkeydown={handleShortcuts}
   ontouchstart={handleTouchStart}
@@ -1414,7 +1396,7 @@
   {:else}
     <!-- Page-based mode -->
     <div class="flex" style:background-color="var(--reader-bg)">
-      <Panzoom>
+      <PagedViewport contentSize={pagedContentSize} rtl={volumeSettings.rightToLeft ?? true}>
         <button
           aria-label="Previous page (left edge)"
           class="fixed -left-full z-10 h-full w-full opacity-[0.01] hover:bg-slate-400"
@@ -1486,7 +1468,7 @@
             </div>
           {/key}
         </div>
-      </Panzoom>
+      </PagedViewport>
     </div>
 
     {#if !$settings.mobile}

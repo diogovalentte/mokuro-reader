@@ -15,6 +15,7 @@ Mokuro Reader is a web-based manga reader for [mokuro](https://github.com/kha-wh
 - `npm run preview` - Preview production build
 - `npm test` - Run tests with Vitest
 - `npm run test:coverage` - Run tests with coverage
+- `npm run test:e2e` - Run Playwright e2e tests (see Testing for port caveats)
 - `npm run check` - Type-check with svelte-check
 - `npm run check:watch` - Type-check in watch mode
 - `npm run lint` - Lint code (Prettier + ESLint)
@@ -262,6 +263,13 @@ These are only required for Google Drive sync. MEGA and WebDAV don't require env
 - Component tests use @testing-library/svelte
 - Run tests with `npm test`
 - Example test files: `src/lib/util/count-chars.test.ts`, `src/lib/components/Settings/__tests__/QuickAccess.test.ts`
+
+### E2E (Playwright)
+
+- `npm run test:e2e` runs `e2e/*.spec.ts`. The config starts (or **silently reuses**) a dev server on port 5173.
+- **Multi-worktree caveat**: if another worktree's dev server already owns 5173, the suite would run against that worktree's code. Set `E2E_PORT=<free port>` to start a dedicated server for the current worktree.
+- `E2E_CHROMIUM=/path/to/chrome` points Playwright at an existing browser binary instead of downloading one (e.g. a build under `~/.cache/ms-playwright/`).
+- The zoom specs import production modules (`zoom-controller.ts`, `zoom-layout.ts`, `page-detection.ts`) through the Vite dev server and drive them against synthetic page strips.
 
 ## Common Development Tasks
 

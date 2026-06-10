@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.6.2] - 2026-06-10
+
+### Fixed
+
+- **UTF-8-safe Basic-auth encoding** - WebDAV usernames and passwords containing non-ASCII characters (e.g. é, ä, kana, emoji) no longer get Latin-1-mangled (silently degrading the session to anonymous on servers like mokuro-bunko) or throw during encoding. All Authorization headers the app builds now encode credentials as UTF-8, and the `webdav` library's own Latin-1 encoder is bypassed via a pre-built header
+- **401 on writes is an auth failure, not "read-only"** - A 401 response to an upload/delete/rename now surfaces as an authentication failure with a re-login prompt (red "Action Required" cloud) instead of silently marking the server read-only. 403 (insufficient permissions) upload failures no longer disable progress sync when the server reports the account can sync progress
+- **Session restore with stale credentials** - When stored credentials are rejected on startup, only the password is cleared; the server URL and username are kept, the library reconnects anonymously where possible, and the UI prompts for re-login instead of dropping the whole configuration
+
+### Changed
+
+- A username without a password no longer sends an `Authorization` header (the connection is treated as anonymous instead of sending `Basic user:`)
+
+### Added
+
+- **mokuro-bunko identity-endpoint support** - When the server exposes `/login/api/me` (mokuro-bunko >= 0.1.4), the reader verifies credentials after connecting and derives read-only state and permissions from the server's response instead of OPTIONS/PROPFIND guessing. Generic WebDAV servers (copyparty, Nextcloud, nginx) and older mokuro-bunko versions are unaffected and keep the existing heuristics. Stored credentials keep their existing localStorage format, and sessions previously mis-flagged as read-only self-heal on the next login/restore
+
 ## [1.6.1] - 2026-06-08
 
 ### Added

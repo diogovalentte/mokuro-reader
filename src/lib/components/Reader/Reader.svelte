@@ -3,17 +3,10 @@
   import type { TransitionConfig } from 'svelte/transition';
 
   import { currentSeries, currentVolume, currentVolumeData } from '$lib/catalog';
-  import {
-    Panzoom,
-    panzoomStore,
-    scrollImage,
-    toggleFullScreen,
-    zoomDefault,
-    zoomDefaultWithLayoutWait,
-    zoomFitToScreen,
-    getHorizontalPanEdgeState,
-    handleWheel as panzoomHandleWheel
-  } from '$lib/panzoom';
+  import PagedViewport from './PagedViewport.svelte';
+  import { pagedZoom } from '$lib/reader/paged-zoom';
+  import { setInstantAnimations } from '$lib/reader/animator';
+  import { toggleFullScreen } from '$lib/util/fullscreen';
   import {
     effectiveVolumeSettings,
     imageFilter,
@@ -124,7 +117,8 @@
     updateVolumeSetting(volumeId, 'hasCover', !volumeSettings.hasCover);
     const pageClamped = Math.max($volumes[volumeId].progress - 1, 1);
     updateProgress(volumeId, pageClamped);
-    zoomDefault();
+    // The paged viewport re-applies its base when the displayed content
+    // changes (hasCover flows into the content-size prop).
   }
 
   function left(_e: any, ingoreTimeOut?: boolean) {
@@ -382,7 +376,7 @@
         left(event, true);
         return;
       case 'ArrowUp':
-        scrollImage('up');
+        $pagedZoom?.scrollImage('up');
         return;
       case 'PageUp':
         navigateBackward(true);
@@ -391,7 +385,7 @@
         right(event, true);
         return;
       case 'ArrowDown':
-        scrollImage('down');
+        $pagedZoom?.scrollImage('down');
         return;
       case 'PageDown':
       case 'Space':
@@ -486,7 +480,7 @@
     // Snapshot how much pannable content exists in each horizontal direction
     // right now, so that a subsequent swipe can be classified as either a
     // page-flip (only when already at the relevant edge) or an intra-page pan.
-    const edgeState = getHorizontalPanEdgeState();
+    const edgeState = $pagedZoom?.edgeState() ?? { canRevealLeft: false, canRevealRight: false };
     canRevealLeftAtStart = edgeState.canRevealLeft;
     canRevealRightAtStart = edgeState.canRevealRight;
   }
@@ -531,32 +525,25 @@
   }
 
   function onDoubleTap(event: MouseEvent) {
-    if ($panzoomStore) {
-      const { clientX, clientY } = event;
-      const { scale } = $panzoomStore.getTransform();
-
-      if (scale < 1) {
-        $panzoomStore.zoomTo(clientX, clientY, 1.5);
-      } else {
-        zoomFitToScreen();
-      }
-    }
+    // Double-clicking a word to select it shouldn't zoom.
+    if ((event.target as HTMLElement).closest('.textBox')) return;
+    $pagedZoom?.doubleTap(event.clientX, event.clientY);
   }
 
   // Wheel handler wrapper.
   // We only intercept wheel events that originate inside our reader content
-  // (the Panzoom wrapper marked with data-mokuro-reader). Anything else —
+  // (the paged viewport marked with data-mokuro-reader). Anything else —
   // settings drawer, popovers, dialogs, and extension overlays like Migaku
   // and Yomitan popups (which inject into <body>, often inside shadow DOM) —
   // is left alone so the browser's default scroll handling can apply.
   function handleWheelEvent(e: WheelEvent) {
-    // In continuous scroll mode, let ContinuousScrollReader handle wheel events
+    // In continuous scroll mode, let the scroll readers handle wheel events
     if ($settings.continuousScroll) return;
 
     const target = e.target as HTMLElement;
     if (!target.closest('[data-mokuro-reader]')) return;
 
-    panzoomHandleWheel(e);
+    $pagedZoom?.handleWheel(e);
   }
 
   onMount(() => {
@@ -592,27 +579,23 @@
     activityTracker.setTimeoutDuration($settings.inactivityTimeoutMinutes);
   });
 
-  // Apply zoom after page changes or settings changes
-  // This ensures proper scaling and centering when page dimensions or layout settings change
-  $effect(() => {
-    const pg = page;
+  // The paged viewport re-applies its base whenever the displayed content,
+  // zoom mode, viewport, or reading direction changes — driven by the
+  // pagedContentSize prop computed from page data (no DOM measurement, no
+  // layout waits).
+  let pagedContentSize = $derived.by(() => {
     const pgs = pages;
-    const pz = $panzoomStore;
-
-    // Add dependencies on settings that affect layout and zoom
-    const zoomMode = $settings.zoomDefault;
-    const pageMode = $settings.singlePageView;
-    const hasCover = volumeSettings.hasCover;
-    const rtl = volumeSettings.rightToLeft;
-
-    // Wait for all required data and panzoom instance to be ready
-    if (pg && pgs && pgs.length > 0 && pz) {
-      // Wait for Svelte DOM updates, then wait for browser layout reflow
-      // This is critical for auto page mode switching to have correct dimensions
-      tick().then(() => {
-        zoomDefaultWithLayoutWait();
-      });
+    const idx = index;
+    if (!pgs || pgs.length === 0 || !pgs[idx]) return { width: 0, height: 0 };
+    const first = pgs[idx];
+    if (showSecondPage() && pgs[idx + 1]) {
+      const second = pgs[idx + 1];
+      return {
+        width: first.img_width + second.img_width,
+        height: Math.max(first.img_height, second.img_height)
+      };
     }
+    return { width: first.img_width, height: first.img_height };
   });
 
   // Fire reader closed event when component is destroyed (navigating away)
@@ -640,6 +623,12 @@
   // Set of missing page paths for checking if current page is a placeholder
   let missingPagePaths = $derived(new Set(volume?.missing_page_paths || []));
 
+  // E-ink mode: all reader animations (zoom, smooth scroll, camera pan) run
+  // through Animator — flip its global instant mode from the setting.
+  $effect(() => {
+    setInstantAnimations($settings.disableAnimations);
+  });
+
   // Track page direction for animations (set in changePage function before page changes)
   let pageDirection = $state<'forward' | 'backward'>('forward');
 
@@ -654,15 +643,15 @@
 
     const durations = {
       crossfade: 200,
-      vertical: 400,
       pageTurn: 200,
       swipe: 350,
       none: 0
     };
 
+    // Legacy persisted values (e.g. the removed 'vertical') fall to 0.
     const duration = durations[transition] || 0;
 
-    if (transition === 'none') {
+    if (duration === 0 || $settings.disableAnimations) {
       return { duration: 0 };
     }
 
@@ -672,16 +661,6 @@
       css: (t) => {
         if (transition === 'crossfade') {
           return `opacity: ${t}`;
-        }
-
-        if (transition === 'vertical') {
-          // Slide vertically with a small gap between pages
-          const gap = 3; // Small gap between pages (in vh units)
-          const startOffset = direction === 'forward' ? 100 + gap : -(100 + gap);
-          const currentPos = startOffset * (1 - t);
-          return `
-            transform: translateY(${currentPos}vh);
-          `;
         }
 
         if (transition === 'pageTurn') {
@@ -727,15 +706,15 @@
 
     const durations = {
       crossfade: 200,
-      vertical: 400,
       pageTurn: 200,
       swipe: 350,
       none: 0
     };
 
+    // Legacy persisted values (e.g. the removed 'vertical') fall to 0.
     const duration = durations[transition] || 0;
 
-    if (transition === 'none') {
+    if (duration === 0 || $settings.disableAnimations) {
       return { duration: 0 };
     }
 
@@ -745,16 +724,6 @@
       css: (t) => {
         if (transition === 'crossfade') {
           return `opacity: ${t}`;
-        }
-
-        if (transition === 'vertical') {
-          // Slide vertically - now used for ENTERING page
-          const gap = 3; // Small gap between pages (in vh units)
-          const endOffset = direction === 'forward' ? -(100 + gap) : 100 + gap;
-          const currentPos = endOffset * (1 - t);
-          return `
-            transform: translateY(${currentPos}vh);
-          `;
         }
 
         if (transition === 'pageTurn') {
@@ -783,7 +752,9 @@
   let cachedImageUrl1 = $state<string | null>(null);
   let cachedImageUrl2 = $state<string | null>(null);
 
-  // Update cache when page or volume data changes
+  // Update cache when page or volume data changes. Continuous readers render
+  // their own blob URLs, but QuickActions reads imageCache.getFile() for Anki
+  // image actions in BOTH modes — the cache must stay warm here.
   $effect(() => {
     const currentIndex = index;
     const files = volumeData?.files;
@@ -832,6 +803,14 @@
   // Window size state for reactive auto-detection
   let windowWidth = $state(typeof window !== 'undefined' ? window.innerWidth : 0);
   let windowHeight = $state(typeof window !== 'undefined' ? window.innerHeight : 0);
+
+  let effectiveScrollMode = $derived(
+    $settings.scrollMode === 'auto'
+      ? windowWidth > windowHeight
+        ? 'horizontal'
+        : 'vertical'
+      : $settings.scrollMode
+  );
 
   // Determine if we should show single page based on mode, pages, and screen
   // Force calculation to wait for all data by using a single derived with explicit dependencies
@@ -894,8 +873,14 @@
   let continuousVisibleCount = $state(1);
   let pageDisplay = $derived.by(() => {
     if ($settings.continuousScroll) {
-      // Continuous mode: use actual visible count from the scroll reader
-      if (continuousVisibleCount > 1 && page + 1 <= (pages?.length ?? 0)) {
+      // Continuous mode: use actual visible count from the scroll reader.
+      // Only the horizontal reader reports counts — ignore a stale value
+      // after switching to vertical.
+      if (
+        effectiveScrollMode === 'horizontal' &&
+        continuousVisibleCount > 1 &&
+        page + 1 <= (pages?.length ?? 0)
+      ) {
         return `${page},${page + 1} / ${pages?.length}`;
       }
       return `${page} / ${pages?.length}`;
@@ -931,7 +916,7 @@
   let notificationKey = $state<string>('');
   let notificationTimeout: number | undefined = undefined;
 
-  // Context menu state (rendered outside panzoom for correct positioning)
+  // Context menu state (rendered outside the zoom wrapper for correct positioning)
   interface ContextMenuData {
     x: number;
     y: number;
@@ -1277,7 +1262,7 @@
   onresize={() => {
     windowWidth = window.innerWidth;
     windowHeight = window.innerHeight;
-    zoomDefaultWithLayoutWait();
+    // The paged viewport re-applies its base on resize internally.
   }}
   onkeydown={handleShortcuts}
   ontouchstart={handleTouchStart}
@@ -1369,12 +1354,6 @@
     {/key}
   {/if}
   {#if $settings.continuousScroll && volumeData?.files}
-    {@const effectiveScrollMode =
-      $settings.scrollMode === 'auto'
-        ? windowWidth > windowHeight
-          ? 'horizontal'
-          : 'vertical'
-        : $settings.scrollMode}
     {#if effectiveScrollMode === 'vertical'}
       <VerticalScrollReader
         {pages}
@@ -1404,7 +1383,11 @@
   {:else}
     <!-- Page-based mode -->
     <div class="flex" style:background-color="var(--reader-bg)">
-      <Panzoom>
+      <PagedViewport
+        contentSize={pagedContentSize}
+        pageKey={page}
+        rtl={volumeSettings.rightToLeft ?? true}
+      >
         <button
           aria-label="Previous page (left edge)"
           class="fixed -left-full z-10 h-full w-full opacity-[0.01] hover:bg-slate-400"
@@ -1476,7 +1459,7 @@
             </div>
           {/key}
         </div>
-      </Panzoom>
+      </PagedViewport>
     </div>
 
     {#if !$settings.mobile}

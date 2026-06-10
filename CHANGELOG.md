@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.7.0] - 2026-06-10
+
+### Added
+
+- Targeted zoom in continuous modes: wheel, double-tap, pinch (#195, #225)
+- Paged zoom rebuilt on the same engine — panzoom removed (#226)
+- "Disable animations (e-ink)" toggle (#226)
+
+### Changed
+
+- Paged wheel zoom animates through fit-relative steps (#226)
+- Double-tap cycles zoom in / fit contextually (#226)
+- Keep zoom preserves apparent size across pages (#226)
+- Continuous scroll no longer labeled Alpha
+
+### Removed
+
+- Vertical page transition (#226)
+
 ## [1.6.1] - 2026-06-08
 
 ### Added

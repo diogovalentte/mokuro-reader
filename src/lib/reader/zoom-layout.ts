@@ -35,21 +35,40 @@ export interface HorizontalZoomElements {
   container: HTMLElement;
 }
 
+/**
+ * @param contentWidth Widest page's scaled layout width at the current zoom
+ * mode (computed from page data). The wrapper is pinned to the CONTENT width
+ * — not the viewport width — and centered, scaling from `top center`: the
+ * scroll range then hugs the content exactly. Pinning to the viewport width
+ * made the side margins of narrower-than-viewport content (fit-to-screen)
+ * part of the scaled wrapper, creating a pan range that let pages be pushed
+ * fully off screen.
+ *
+ * Geometry: spacer width = max(viewport, content×zoom); the centered wrapper's
+ * visual span is [spacer/2 − content×zoom/2, spacer/2 + content×zoom/2],
+ * which stays inside the spacer on both sides for any zoom — no unreachable
+ * inline-start overflow, no phantom margin panning.
+ */
 export function applyVerticalZoomLayout(
   els: VerticalZoomElements,
   viewport: { width: number; height: number },
+  contentWidth: number,
   zoom: number
 ): void {
   const { wrapper, spacer } = els;
-  wrapper.style.transformOrigin = 'top left';
+  wrapper.style.transformOrigin = 'top center';
   if (zoom > 1) {
-    wrapper.style.width = `${viewport.width}px`;
-    spacer.style.width = `${viewport.width * zoom}px`;
+    wrapper.style.width = `${contentWidth}px`;
+    wrapper.style.marginLeft = 'auto';
+    wrapper.style.marginRight = 'auto';
+    spacer.style.width = `${Math.max(viewport.width, contentWidth * zoom)}px`;
     spacer.style.minHeight = `${wrapper.offsetHeight * zoom + viewport.height}px`;
     wrapper.style.transform = `scale(${zoom})`;
   } else {
     wrapper.style.transform = '';
     wrapper.style.width = '';
+    wrapper.style.marginLeft = '';
+    wrapper.style.marginRight = '';
     spacer.style.width = '';
     spacer.style.minHeight = '';
   }

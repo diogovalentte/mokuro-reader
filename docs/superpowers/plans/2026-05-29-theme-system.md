@@ -39,6 +39,7 @@ Tailwind v4 compiles `bg-gray-950` → `background-color: var(--color-gray-950)`
 ## Task 1: Color math helpers
 
 **Files:**
+
 - Create: `src/lib/settings/color.ts`
 - Test: `src/lib/settings/color.test.ts`
 
@@ -113,12 +114,7 @@ export function parseHex(hex: string): RGB {
 }
 
 export function toHex(rgb: RGB): string {
-  return (
-    '#' +
-    rgb
-      .map((c) => clampChannel(c).toString(16).padStart(2, '0'))
-      .join('')
-  );
+  return '#' + rgb.map((c) => clampChannel(c).toString(16).padStart(2, '0')).join('');
 }
 
 /** Linear blend: t=0 returns a, t=1 returns b. */
@@ -151,6 +147,7 @@ git commit -m "feat(theme): add hex color math helpers"
 ## Task 2: Theme model, presets, and resolution
 
 **Files:**
+
 - Create: `src/lib/settings/theme.ts`
 - Test: `src/lib/settings/theme.test.ts`
 
@@ -418,6 +415,7 @@ git commit -m "feat(theme): add theme presets, token derivation, and active-them
 ## Task 3: Settings type, defaults, migration, and barrel export
 
 **Files:**
+
 - Modify: `src/lib/settings/settings.ts` (type ~133, defaults ~251, migration ~426, end of file)
 - Test: `src/lib/settings/settings.test.ts` (create)
 
@@ -426,9 +424,9 @@ git commit -m "feat(theme): add theme presets, token derivation, and active-them
 In `src/lib/settings/settings.ts`, in the `Settings` type, immediately after the `backgroundColor: string;` line (currently line 133), add:
 
 ```ts
-  backgroundColor: string;
-  theme: string; // preset id ('dark' | 'eink' | 'paper' | 'sepia' | 'nord' | 'custom')
-  customTheme: import('./theme').CustomTheme; // edited by the Custom theme mode
+backgroundColor: string;
+theme: string; // preset id ('dark' | 'eink' | 'paper' | 'sepia' | 'nord' | 'custom')
+customTheme: import('./theme').CustomTheme; // edited by the Custom theme mode
 ```
 
 - [ ] **Step 2: Add the defaults**
@@ -456,26 +454,26 @@ In `defaultSettings`, immediately after the `backgroundColor: '#030712',` line (
 In `migrateProfiles`, after the `migratedProfile.catalogSettings = { ... }` block and before the `// Add timestamp if missing` comment (currently ~line 430), add:
 
 ```ts
-    // Theme migration. The `...defaultSettings, ...profile` spread above already
-    // applies `theme`/`customTheme` defaults or carries existing values forward.
-    migratedProfile.customTheme = {
-      ...defaultSettings.customTheme,
-      ...(profile.customTheme || {})
-    };
-    // Legacy: a profile predating themes that deliberately changed the reader
-    // background keeps its look via a seeded Custom theme.
-    if (
-      profile.theme === undefined &&
-      typeof profile.backgroundColor === 'string' &&
-      profile.backgroundColor !== defaultSettings.backgroundColor
-    ) {
-      migratedProfile.theme = 'custom';
-      migratedProfile.customTheme = {
-        ...migratedProfile.customTheme,
-        base: 'dark',
-        background: profile.backgroundColor
-      };
-    }
+// Theme migration. The `...defaultSettings, ...profile` spread above already
+// applies `theme`/`customTheme` defaults or carries existing values forward.
+migratedProfile.customTheme = {
+  ...defaultSettings.customTheme,
+  ...(profile.customTheme || {})
+};
+// Legacy: a profile predating themes that deliberately changed the reader
+// background keeps its look via a seeded Custom theme.
+if (
+  profile.theme === undefined &&
+  typeof profile.backgroundColor === 'string' &&
+  profile.backgroundColor !== defaultSettings.backgroundColor
+) {
+  migratedProfile.theme = 'custom';
+  migratedProfile.customTheme = {
+    ...migratedProfile.customTheme,
+    base: 'dark',
+    background: profile.backgroundColor
+  };
+}
 ```
 
 - [ ] **Step 4: Import theme helpers and define the active-theme store**
@@ -571,6 +569,7 @@ git commit -m "feat(theme): store theme per-profile with backgroundColor migrati
 ## Task 4: ThemeController and global CSS wiring
 
 **Files:**
+
 - Create: `src/lib/components/ThemeController.svelte`
 - Modify: `src/app.css` (after the `@theme { ... }` block)
 - Modify: `src/app.html` (`<body>` class, line 39)
@@ -650,13 +649,13 @@ body {
 In `src/app.html`, change the `<body>` tag (line 39) from:
 
 ```html
-  <body data-sveltekit-preload-data="hover" class="bg-white dark:bg-gray-950 dark:text-white">
+<body data-sveltekit-preload-data="hover" class="bg-white dark:bg-gray-950 dark:text-white"></body>
 ```
 
 to:
 
 ```html
-  <body data-sveltekit-preload-data="hover" class="dark:text-white">
+<body data-sveltekit-preload-data="hover" class="dark:text-white"></body>
 ```
 
 (The `bg-white dark:bg-gray-950` classes are removed because `body { background-color: var(--app-bg) }` now owns the canvas color across all themes.)
@@ -668,8 +667,8 @@ In `src/routes/+layout.svelte`:
 Add the import alongside the other component imports (after the `NightModeFilter` import on line 18):
 
 ```ts
-  import NightModeFilter from '$lib/components/NightModeFilter.svelte';
-  import ThemeController from '$lib/components/ThemeController.svelte';
+import NightModeFilter from '$lib/components/NightModeFilter.svelte';
+import ThemeController from '$lib/components/ThemeController.svelte';
 ```
 
 Change the main content wrapper (line 117) from:
@@ -687,13 +686,14 @@ to:
 Add the controller next to `<NightModeFilter />` (line 123):
 
 ```svelte
-    <NightModeFilter />
-    <ThemeController />
+<NightModeFilter />
+<ThemeController />
 ```
 
 - [ ] **Step 5: Manual verification**
 
 Run: `npm run dev`
+
 - App still loads in Dark (default) with no visible change vs. before.
 - In the browser console: `document.documentElement.style.setProperty('--app-bg', '#ffffff'); document.documentElement.classList.remove('dark')` → canvas turns white, text/components switch to light styling. Re-add `dark` and reset to confirm reversibility.
 
@@ -709,6 +709,7 @@ git commit -m "feat(theme): apply themes via ThemeController and canvas backgrou
 ## Task 5: Reader viewport follows the theme
 
 **Files:**
+
 - Modify: `src/lib/components/Reader/Reader.svelte:1386`
 - Modify: `src/lib/components/Reader/VerticalScrollReader.svelte:573`
 - Modify: `src/lib/components/Reader/HorizontalScrollReader.svelte:635`
@@ -732,13 +733,13 @@ to:
 Change line 573 from:
 
 ```svelte
-  style:background-color={$settings.backgroundColor}
+style:background-color={$settings.backgroundColor}
 ```
 
 to:
 
 ```svelte
-  style:background-color="var(--reader-bg)"
+style:background-color="var(--reader-bg)"
 ```
 
 - [ ] **Step 3: HorizontalScrollReader.svelte**
@@ -746,13 +747,13 @@ to:
 Change line 635 from:
 
 ```svelte
-  style:background-color={$settings.backgroundColor}
+style:background-color={$settings.backgroundColor}
 ```
 
 to:
 
 ```svelte
-  style:background-color="var(--reader-bg)"
+style:background-color="var(--reader-bg)"
 ```
 
 - [ ] **Step 4: Verify**
@@ -771,6 +772,7 @@ git commit -m "feat(theme): drive reader viewport background from theme"
 ## Task 6: Remove the migrated background-color control
 
 **Files:**
+
 - Modify: `src/lib/components/Settings/Reader/ReaderSelects.svelte` (fn ~52, control ~95-96)
 
 - [ ] **Step 1: Remove the control markup**
@@ -778,8 +780,8 @@ git commit -m "feat(theme): drive reader viewport background from theme"
 Delete these two lines (currently 95-96):
 
 ```svelte
-  <Label class="text-gray-900 dark:text-white">Background color:</Label>
-  <Input type="color" onchange={onBackgroundColor} value={$settings.backgroundColor} />
+<Label class="text-gray-900 dark:text-white">Background color:</Label>
+<Input type="color" onchange={onBackgroundColor} value={$settings.backgroundColor} />
 ```
 
 - [ ] **Step 2: Remove the now-unused handler**
@@ -787,9 +789,9 @@ Delete these two lines (currently 95-96):
 Delete the function (currently lines 52-54):
 
 ```ts
-  function onBackgroundColor(event: Event) {
-    updateSetting('backgroundColor', (event.target as HTMLInputElement).value);
-  }
+function onBackgroundColor(event: Event) {
+  updateSetting('backgroundColor', (event.target as HTMLInputElement).value);
+}
 ```
 
 - [ ] **Step 3: Check for unused imports**
@@ -809,6 +811,7 @@ git commit -m "feat(theme): drop standalone reader background-color control (mig
 ## Task 7: Appearance settings UI
 
 **Files:**
+
 - Create: `src/lib/components/Settings/AppearanceSettings.svelte`
 - Modify: `src/lib/components/Settings/Settings.svelte` (import + mount in the Accordion)
 
@@ -928,16 +931,16 @@ git commit -m "feat(theme): drop standalone reader background-color control (mig
 In `src/lib/components/Settings/Settings.svelte`, add the import after the `QuickAccess` import:
 
 ```ts
-  import QuickAccess from './QuickAccess.svelte';
-  import AppearanceSettings from './AppearanceSettings.svelte';
+import QuickAccess from './QuickAccess.svelte';
+import AppearanceSettings from './AppearanceSettings.svelte';
 ```
 
 Add the section to the `<Accordion>` after `<CatalogSettings />` and before `<Stats />`:
 
 ```svelte
-      <CatalogSettings />
-      <AppearanceSettings />
-      <Stats />
+<CatalogSettings />
+<AppearanceSettings />
+<Stats />
 ```
 
 - [ ] **Step 3: Type-check**
@@ -948,6 +951,7 @@ Expected: No errors in `AppearanceSettings.svelte`.
 - [ ] **Step 4: Manual verification (the core of this feature)**
 
 Run: `npm run dev`. Open Settings → Appearance:
+
 - Click each preset (Dark, E-ink, Paper, Sepia, Nord) → entire UI re-colors live: navbar, drawer, accordion, buttons, toggles, range sliders, the catalog, and the reader viewport.
 - Click **Custom…** → editor appears seeded from the active preset; changing each of the six swatches and the base toggle updates the UI live.
 - Switch profiles → theme follows the profile.
@@ -973,7 +977,7 @@ Light themes expose components that hardcode light-on-dark colors with **no ligh
 Run:
 
 ```bash
-grep -rn "text-white" src/lib/components src/routes | grep -v "dark:text-white" | grep -v "bg-primary\|bg-blue\|bg-green\|bg-red\|hover:" 
+grep -rn "text-white" src/lib/components src/routes | grep -v "dark:text-white" | grep -v "bg-primary\|bg-blue\|bg-green\|bg-red\|hover:"
 ```
 
 and
@@ -1008,6 +1012,7 @@ git commit -m "fix(theme): add light-mode color counterparts where missing"
 ## Task 9: Full verification and changelog
 
 **Files:**
+
 - Modify: changelog file (check repo for `CHANGELOG.md` or the pattern used by recent releases, e.g. commit `1a50b3d`).
 
 - [ ] **Step 1: Test suite**
@@ -1033,6 +1038,7 @@ Expected: Builds successfully.
 - [ ] **Step 5: Full manual matrix**
 
 `npm run preview`, then for each preset (Dark, E-ink, Paper, Sepia, Nord) and one Custom config, with night mode both OFF and ON:
+
 - Catalog grid + list, series view, reader (page + continuous scroll modes), settings drawer, and at least one modal (e.g. Volume Editor) — confirm legible, correctly themed, buttons clickable.
 - Confirm a legacy profile with a custom `backgroundColor` (simulate by editing localStorage `profiles` to add `backgroundColor: "#123456"` and removing `theme`, then reload) migrates to a Custom theme preserving that background.
 

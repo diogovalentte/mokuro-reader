@@ -8,7 +8,7 @@
 
 Dark mode renders poorly on e-ink panels (low refresh, poor grayscale separation — white-on-black ghosts). Users want a light, high-contrast mode. Rather than a bare dark/light toggle, we add a small **theme system**: a handful of presets (including a high-contrast e-ink theme and a softer standard light theme) plus a **Custom** mode, all driven by a deliberately small set of color tokens.
 
-Design goal stated by the maintainer: *"simplify the overall color scheme so there's only a handful of things to adjust."*
+Design goal stated by the maintainer: _"simplify the overall color scheme so there's only a handful of things to adjust."_
 
 ## Key Mechanism (why this is cheap)
 
@@ -32,11 +32,11 @@ type ThemeBase = 'light' | 'dark';
 
 type ThemeTokens = {
   background: string; // app canvas / page; ALSO the reader viewport background
-  surface: string;    // cards, drawers, navbar, modals
-  text: string;       // primary text
-  muted: string;      // secondary text, hints, disabled
-  border: string;     // dividers, outlines
-  accent: string;     // primary buttons, links, highlights
+  surface: string; // cards, drawers, navbar, modals
+  text: string; // primary text
+  muted: string; // secondary text, hints, disabled
+  border: string; // dividers, outlines
+  accent: string; // primary buttons, links, highlights
 };
 
 type Theme = {
@@ -57,6 +57,7 @@ Six tokens + base is the entire surface area the user can adjust. This is the "h
 Presets are authored as concrete CSS-variable overrides (hand-tuned for polish). The six semantic tokens map onto the Tailwind ramp roughly as:
 
 **Light base:**
+
 - `--color-white` ← surface
 - `--color-gray-50`, `--color-gray-100` ← background / subtle surface tints (derived)
 - `--color-gray-900`, `--color-gray-950` ← text
@@ -64,6 +65,7 @@ Presets are authored as concrete CSS-variable overrides (hand-tuned for polish).
 - `--color-gray-200`/`300`/`700` ← border (derived)
 
 **Dark base:**
+
 - `--color-gray-950`, `--color-gray-900` ← background
 - `--color-gray-800`, `--color-gray-700` ← surface
 - `--color-white`, `--color-gray-100` ← text
@@ -74,18 +76,18 @@ Accent maps to `--color-primary-500/600/700` (and the Flowbite `--color-brand`).
 
 For **presets**, the exact per-variable values are tuned by hand (a preset may set more ramp stops than the six tokens imply). For **Custom**, the six user-chosen colors are expanded to the ramp by a deterministic derivation helper (lighten/darken steps), so custom themes are functional even if less hand-polished than presets.
 
-> Implementation note: the precise ramp-derivation function and the exact stop values for each preset are an implementation detail to be finalized during the plan/build, validated visually against real screens. The contract this design fixes is: *six tokens + base, applied by scoping CSS-variable overrides.*
+> Implementation note: the precise ramp-derivation function and the exact stop values for each preset are an implementation detail to be finalized during the plan/build, validated visually against real screens. The contract this design fixes is: _six tokens + base, applied by scoping CSS-variable overrides._
 
 ## Presets
 
-| id | name | base | character |
-|----|------|------|-----------|
-| `dark` | Dark | dark | Current look. **Default.** Zero behavior change for existing users. |
-| `eink` | E-ink | light | Pure/near-pure white bg, near-black text, crisp borders, **no shadows**. High contrast for low-refresh panels. |
-| `paper` | Paper | light | Softer standard light UI (gray-50 surfaces, normal borders/shadows). |
-| `sepia` | Sepia | light | Warm paper tones (e.g. `#f4ecd8` bg, dark-brown text). Easy reading. |
-| `nord` | Nord | dark | Popular cool-blue dark pastel. |
-| `custom` | Custom | user-chosen | Six editable swatches + base toggle. |
+| id       | name   | base        | character                                                                                                      |
+| -------- | ------ | ----------- | -------------------------------------------------------------------------------------------------------------- |
+| `dark`   | Dark   | dark        | Current look. **Default.** Zero behavior change for existing users.                                            |
+| `eink`   | E-ink  | light       | Pure/near-pure white bg, near-black text, crisp borders, **no shadows**. High contrast for low-refresh panels. |
+| `paper`  | Paper  | light       | Softer standard light UI (gray-50 surfaces, normal borders/shadows).                                           |
+| `sepia`  | Sepia  | light       | Warm paper tones (e.g. `#f4ecd8` bg, dark-brown text). Easy reading.                                           |
+| `nord`   | Nord   | dark        | Popular cool-blue dark pastel.                                                                                 |
+| `custom` | Custom | user-chosen | Six editable swatches + base toggle.                                                                           |
 
 The preset list is intentionally short. It can be extended later by adding entries to the preset table — no structural change required.
 
@@ -95,7 +97,7 @@ Theme is stored **per-profile** in the `Settings` type (`src/lib/settings/settin
 
 ```ts
 // src/lib/settings/settings.ts — Settings additions
-theme: string;            // preset id, default 'dark'
+theme: string; // preset id, default 'dark'
 customTheme: ThemeTokens & { base: ThemeBase }; // edited by Custom mode
 ```
 

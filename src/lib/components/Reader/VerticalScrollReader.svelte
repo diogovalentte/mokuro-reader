@@ -83,12 +83,35 @@
   let isZoomed = $state(false);
   let suppressSettleReport = false;
 
+  /**
+   * Widest page's scaled layout width at the current zoom mode — the zoomed
+   * wrapper pins to this (not the viewport width) so empty side margins
+   * never become pannable scroll range.
+   */
+  function maxContentWidth(): number {
+    let max = 0;
+    for (const page of pages) {
+      let width: number;
+      if (zoomMode === 'zoomOriginal') {
+        width = page.img_width;
+      } else if (zoomMode === 'zoomFitToScreen') {
+        const scale = Math.min(viewportWidth / page.img_width, viewportHeight / page.img_height);
+        width = page.img_width * scale;
+      } else {
+        width = viewportWidth; // zoomFitToWidth
+      }
+      if (width > max) max = width;
+    }
+    return max || viewportWidth;
+  }
+
   // Reader-specific zoomed layout — shared with the e2e suite, see zoom-layout.ts
   function applyZoomLayout(zoom: number) {
     if (!zoomWrapperEl || !zoomSpacerEl) return;
     applyVerticalZoomLayout(
       { wrapper: zoomWrapperEl, spacer: zoomSpacerEl },
       { width: viewportWidth, height: viewportHeight },
+      maxContentWidth(),
       zoom
     );
   }

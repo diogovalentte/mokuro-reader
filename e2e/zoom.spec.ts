@@ -12,14 +12,14 @@ import { test, expect, type Page } from '@playwright/test';
  * pinned and content stays reachable.
  */
 
-type WorldOpts = { mode: 'vertical' | 'horizontal'; rtl?: boolean };
+type WorldOpts = { mode: 'vertical' | 'horizontal'; rtl?: boolean; pageWidth?: number };
 
 async function setupWorld(page: Page, opts: WorldOpts) {
   await page.goto('/');
   // Let the app finish booting before we take over the document.
   await page.waitForTimeout(500);
 
-  await page.evaluate(async ({ mode, rtl }) => {
+  await page.evaluate(async ({ mode, rtl, pageWidth }) => {
     const w = window as any;
     document.body.innerHTML = '';
     Object.assign(document.body.style, { margin: '0', overflow: 'hidden', background: '#000' });
@@ -46,16 +46,30 @@ async function setupWorld(page: Page, opts: WorldOpts) {
       wrapper.appendChild(lead);
       for (let i = 0; i < 10; i++) {
         const p = document.createElement('div');
-        // fit-to-width: the page layout box derives from the wrapper width —
-        // the exact geometry that broke the old absolute-scroll targeting.
-        Object.assign(p.style, {
-          width: '100%',
-          aspectRatio: '1400 / 2000',
-          margin: '0 auto -1px',
-          position: 'relative',
-          overflow: 'hidden',
-          background: `hsl(${i * 36}, 70%, 40%)`
-        });
+        // Default: fit-to-width — the page layout box derives from the
+        // wrapper width, the exact geometry that broke the old absolute-
+        // scroll targeting. With pageWidth: fixed-size fit-to-screen-like
+        // pages narrower than the viewport (side margins).
+        Object.assign(
+          p.style,
+          pageWidth
+            ? {
+                width: `${pageWidth}px`,
+                height: `${Math.round((pageWidth * 2000) / 1400)}px`,
+                margin: '0 auto -1px',
+                position: 'relative',
+                overflow: 'hidden',
+                background: `hsl(${i * 36}, 70%, 40%)`
+              }
+            : {
+                width: '100%',
+                aspectRatio: '1400 / 2000',
+                margin: '0 auto -1px',
+                position: 'relative',
+                overflow: 'hidden',
+                background: `hsl(${i * 36}, 70%, 40%)`
+              }
+        );
         wrapper.appendChild(p);
         pages.push(p);
       }
@@ -116,6 +130,7 @@ async function setupWorld(page: Page, opts: WorldOpts) {
             layout.applyVerticalZoomLayout(
               { wrapper, spacer },
               { width: innerWidth, height: innerHeight },
+              pageWidth ?? innerWidth,
               zoom
             )
         : (zoom: number) =>
@@ -557,4 +572,69 @@ test('paged keepZoom: effective scale survives a content swap (spread)', async (
     return { effectiveBefore, effectiveAfter };
   });
   expect(r.effectiveAfter).toBeCloseTo(r.effectiveBefore, 3);
+});
+
+test('vertical fit-to-screen: side margins are not pannable while zoomed', async ({ page }) => {
+  // Narrow fixed-size pages (560px in a 1920px viewport): at 2x the scaled
+  // content (1120px) still fits, so there must be NO horizontal scroll range
+  // — previously the spacer spanned viewport×zoom and the page could be
+  // panned fully off screen through its own empty margins.
+  await setupWorld(page, { mode: 'vertical', pageWidth: 560 });
+  const r = await page.evaluate(async () => {
+    const z = (window as any).__zoom;
+    z.pages[2].scrollIntoView({ block: 'center' });
+    z.controller.cycleZoom(1, innerWidth / 2, innerHeight / 2);
+    await z.settle();
+    z.controller.cycleZoom(1, innerWidth / 2, innerHeight / 2);
+    await z.settle();
+
+    z.scroll.scrollLeft = 99999; // try to pan the page away
+    const afterRight = z.pages[2].getBoundingClientRect();
+    z.scroll.scrollLeft = -99999;
+    const afterLeft = z.pages[2].getBoundingClientRect();
+
+    return {
+      zoom: z.controller.currentZoom,
+      scrollWidth: z.scroll.scrollWidth,
+      clientWidth: z.scroll.clientWidth,
+      centeredLeft: afterRight.left,
+      expectedLeft: (innerWidth - afterRight.width) / 2,
+      sameAfterPanAttempts: Math.abs(afterRight.left - afterLeft.left) < 1
+    };
+  });
+  expect(r.zoom).toBe(2);
+  expect(r.scrollWidth).toBeLessThanOrEqual(r.clientWidth + 1); // no margin pan range
+  expect(r.sameAfterPanAttempts).toBe(true);
+  expect(Math.abs(r.centeredLeft - r.expectedLeft)).toBeLessThan(2); // stays centered
+});
+
+test('vertical fit-to-screen: overflow pan range hugs the content edges exactly', async ({
+  page
+}) => {
+  // 700px pages at 3x = 2100px > 1920px viewport: a 180px range must exist,
+  // with the content edges flush to the viewport at both extremes.
+  await setupWorld(page, { mode: 'vertical', pageWidth: 700 });
+  const r = await page.evaluate(async () => {
+    const z = (window as any).__zoom;
+    z.pages[2].scrollIntoView({ block: 'center' });
+    for (let i = 0; i < 3; i++) {
+      z.controller.cycleZoom(1, innerWidth / 2, innerHeight / 2);
+      await z.settle();
+    }
+    z.scroll.scrollLeft = 0;
+    const atStart = z.pages[2].getBoundingClientRect();
+    z.scroll.scrollLeft = 99999;
+    const atEnd = z.pages[2].getBoundingClientRect();
+    return {
+      zoom: z.controller.currentZoom,
+      range: z.scroll.scrollWidth - z.scroll.clientWidth,
+      startLeft: atStart.left,
+      endRight: atEnd.left + atEnd.width,
+      vw: innerWidth
+    };
+  });
+  expect(r.zoom).toBe(3);
+  expect(Math.abs(r.range - (700 * 3 - r.vw))).toBeLessThan(2);
+  expect(Math.abs(r.startLeft - 0)).toBeLessThan(2); // left edge flush at start
+  expect(Math.abs(r.endRight - r.vw)).toBeLessThan(2); // right edge flush at end
 });

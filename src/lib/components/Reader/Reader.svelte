@@ -5,6 +5,7 @@
   import { currentSeries, currentVolume, currentVolumeData } from '$lib/catalog';
   import PagedViewport from './PagedViewport.svelte';
   import { pagedZoom } from '$lib/reader/paged-zoom';
+  import { setInstantAnimations } from '$lib/reader/animator';
   import { toggleFullScreen } from '$lib/util/fullscreen';
   import {
     effectiveVolumeSettings,
@@ -622,6 +623,12 @@
   // Set of missing page paths for checking if current page is a placeholder
   let missingPagePaths = $derived(new Set(volume?.missing_page_paths || []));
 
+  // E-ink mode: all reader animations (zoom, smooth scroll, camera pan) run
+  // through Animator — flip its global instant mode from the setting.
+  $effect(() => {
+    setInstantAnimations($settings.disableAnimations);
+  });
+
   // Track page direction for animations (set in changePage function before page changes)
   let pageDirection = $state<'forward' | 'backward'>('forward');
 
@@ -636,15 +643,15 @@
 
     const durations = {
       crossfade: 200,
-      vertical: 400,
       pageTurn: 200,
       swipe: 350,
       none: 0
     };
 
+    // Legacy persisted values (e.g. the removed 'vertical') fall to 0.
     const duration = durations[transition] || 0;
 
-    if (transition === 'none') {
+    if (duration === 0 || $settings.disableAnimations) {
       return { duration: 0 };
     }
 
@@ -654,16 +661,6 @@
       css: (t) => {
         if (transition === 'crossfade') {
           return `opacity: ${t}`;
-        }
-
-        if (transition === 'vertical') {
-          // Slide vertically with a small gap between pages
-          const gap = 3; // Small gap between pages (in vh units)
-          const startOffset = direction === 'forward' ? 100 + gap : -(100 + gap);
-          const currentPos = startOffset * (1 - t);
-          return `
-            transform: translateY(${currentPos}vh);
-          `;
         }
 
         if (transition === 'pageTurn') {
@@ -709,15 +706,15 @@
 
     const durations = {
       crossfade: 200,
-      vertical: 400,
       pageTurn: 200,
       swipe: 350,
       none: 0
     };
 
+    // Legacy persisted values (e.g. the removed 'vertical') fall to 0.
     const duration = durations[transition] || 0;
 
-    if (transition === 'none') {
+    if (duration === 0 || $settings.disableAnimations) {
       return { duration: 0 };
     }
 
@@ -727,16 +724,6 @@
       css: (t) => {
         if (transition === 'crossfade') {
           return `opacity: ${t}`;
-        }
-
-        if (transition === 'vertical') {
-          // Slide vertically - now used for ENTERING page
-          const gap = 3; // Small gap between pages (in vh units)
-          const endOffset = direction === 'forward' ? -(100 + gap) : 100 + gap;
-          const currentPos = endOffset * (1 - t);
-          return `
-            transform: translateY(${currentPos}vh);
-          `;
         }
 
         if (transition === 'pageTurn') {

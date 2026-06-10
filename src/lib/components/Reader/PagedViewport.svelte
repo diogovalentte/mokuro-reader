@@ -115,10 +115,12 @@
     const levels = pagedLevels(session.baseScale, session.fitScale);
     const target = doubleTapTarget(controller.currentZoom, levels[0]);
     camera.stopPan();
+    // Zooming in animates the tapped content toward the CLAMPED center
+    // position — aiming at the raw center fights the bounds near edges.
     controller.animateToLevel(
       target,
       { x, y },
-      target >= 2 ? { x: viewportWidth / 2, y: viewportHeight / 2 } : { x, y }
+      target >= 2 ? camera.projectCentered({ x, y }, target) : { x, y }
     );
   }
 

@@ -171,6 +171,31 @@ export class PagedCamera {
     return panEdgeState(this.translate, this.scaledSize(), this.config.getViewport());
   }
 
+  /**
+   * Where the content under `point` will actually sit after zooming to
+   * `userZoomTarget` while trying to center it — i.e. the centered position
+   * pulled back inside the camera's bounds. Double-tap animates toward THIS
+   * point: lerping toward the raw viewport center fights the clamp near
+   * edges and the view wiggles as the correction and the clamp disagree.
+   */
+  projectCentered(point: Translate, userZoomTarget: number): Translate {
+    const content = this.content;
+    if (!content) return point;
+    const viewport = this.config.getViewport();
+    const s = this.effectiveScale;
+    const sNext = this.base.scale * userZoomTarget;
+    const c = { x: (point.x - this.tx) / s, y: (point.y - this.ty) / s };
+    const scaled = { width: content.width * sNext, height: content.height * sNext };
+    const want = {
+      x: viewport.width / 2 - c.x * sNext,
+      y: viewport.height / 2 - c.y * sNext
+    };
+    const t = this.config.isClampingEnabled()
+      ? clampTranslate(want, scaled, viewport, { x: this.base.alignX, y: this.base.alignY })
+      : want;
+    return { x: c.x * sNext + t.x, y: c.y * sNext + t.y };
+  }
+
   /** The controller-facing surface: user zoom in, view corrections out. */
   surface(): ZoomSurface {
     return {

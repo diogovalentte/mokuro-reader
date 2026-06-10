@@ -27,7 +27,7 @@ export type ContinuousZoomMode = 'zoomFitToScreen' | 'zoomFitToWidth' | 'zoomOri
 
 export type ScrollMode = 'vertical' | 'horizontal' | 'auto' | 'continuous';
 
-export type PageTransition = 'none' | 'crossfade' | 'vertical' | 'pageTurn' | 'swipe';
+export type PageTransition = 'none' | 'crossfade' | 'pageTurn' | 'swipe';
 
 // AnkiConnect field mapping - template is freeform text with variables
 export type FieldMapping = {
@@ -144,6 +144,8 @@ export type Settings = {
   pageTransition: PageTransition;
   nightMode: boolean;
   nightModeSchedule: TimeSchedule;
+  /** Skip zoom/pan/page-turn animations entirely (e-ink devices). */
+  disableAnimations: boolean;
   invertColors: boolean;
   invertColorsSchedule: TimeSchedule;
   grayscale: boolean;
@@ -282,6 +284,7 @@ const defaultSettings: Settings = {
     startTime: '21:00',
     endTime: '06:00'
   },
+  disableAnimations: false,
   invertColors: false,
   invertColorsSchedule: {
     enabled: false,

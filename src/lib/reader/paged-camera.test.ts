@@ -154,3 +154,36 @@ describe('PagedCamera — ZoomSurface', () => {
     expect(camera.surface().isReady()).toBe(false);
   });
 });
+
+describe('PagedCamera — projectCentered (double-tap target)', () => {
+  it('returns the viewport center when centering is reachable', () => {
+    const { camera } = makeCamera();
+    camera.applyBase(tall, baseTransform('zoomFitToScreen', tall, viewport, true));
+    // Tap the page center: at 2x it can center exactly (y overflows, x locks
+    // center which IS the centered position for a center-aligned mode)
+    const rectCenter = { x: 800, y: 450 };
+    const p = camera.projectCentered(rectCenter, 2);
+    expect(p.x).toBeCloseTo(800, 4);
+    expect(p.y).toBeCloseTo(450, 4);
+  });
+
+  it('pulls the target inside bounds for a near-corner tap', () => {
+    const { camera } = makeCamera();
+    camera.applyBase(tall, baseTransform('zoomFitToScreen', tall, viewport, true));
+    // Tap near the page's top edge: centering that content at 2x would push
+    // the view past the top bound — the projection lands where the clamp
+    // actually allows, so the animation has a consistent, reachable target.
+    const rect = { x: 800, y: 20 };
+    const p = camera.projectCentered(rect, 2);
+    expect(p.y).toBeLessThan(450); // can't be centered…
+    expect(p.y).toBeCloseTo(40, 1); // …content point sits at y*2 with the view clamped at the top
+  });
+
+  it('returns the raw center when clamping is disabled', () => {
+    const { camera } = makeCamera({ clamp: false });
+    camera.applyBase(tall, baseTransform('zoomFitToScreen', tall, viewport, true));
+    const p = camera.projectCentered({ x: 800, y: 20 }, 2);
+    expect(p.x).toBeCloseTo(800, 4);
+    expect(p.y).toBeCloseTo(450, 4);
+  });
+});

@@ -60,18 +60,44 @@ export interface ZoomWheelEventLike {
   timeStamp: number;
 }
 
+/**
+ * What the controller drives each animation frame. The continuous readers'
+ * surface wraps a native scroll container; paged mode's wraps a transform
+ * camera. The controller itself is gesture logic only.
+ */
+export interface ZoomSurface {
+  /** False while the surface's elements aren't mounted — the frame step skips. */
+  isReady(): boolean;
+  /**
+   * Apply the zoomed layout for this frame (transform/spacers/alignment).
+   * Called BEFORE measurement, so it must be fully synchronous/imperative.
+   */
+  applyZoomLayout(zoom: number): void;
+  /** Force layout so measurements see this frame's writes (no-op for transform surfaces). */
+  syncLayout(): void;
+  /** Relative view correction in screen space: move content left/up by (dx, dy). */
+  correctView(dx: number, dy: number): void;
+}
+
 export interface ZoomControllerConfig {
   /** Discrete levels for wheel/double-tap stepping. First entry is min zoom, last is max. */
   levels?: readonly number[];
-  getScrollContainer(): ZoomContainer | null | undefined;
+  /**
+   * Dynamic level list (paged mode: depends on the current page's base
+   * scale). Takes precedence over `levels` on every read.
+   */
+  getLevels?(): readonly number[];
+  /**
+   * The surface the frame step drives. When omitted, a scroll surface is
+   * built from `getScrollContainer` + `applyZoomLayout` (the continuous
+   * readers' original config shape, kept working as-is).
+   */
+  surface?: ZoomSurface;
+  getScrollContainer?(): ZoomContainer | null | undefined;
   getPageElements(): readonly (ZoomAnchorTarget | undefined)[];
   getViewport(): { width: number; height: number };
-  /**
-   * Apply reader-specific zoomed layout: wrapper transform (+origin), spacer
-   * dimensions, alignment. Called inside the frame step BEFORE measurement,
-   * so it must be fully synchronous/imperative (no reactive state).
-   */
-  applyZoomLayout(zoom: number): void;
+  /** Legacy scroll-surface layout hook — see `surface`. */
+  applyZoomLayout?(zoom: number): void;
   /** Gate for cross-axis drag panning and similar component state. */
   onZoomedChange?(zoomed: boolean): void;
   /**
@@ -81,9 +107,28 @@ export interface ZoomControllerConfig {
   onSettled?(zoom: number): void;
 }
 
+/** The continuous readers' surface: native scroll container + layout hook. */
+function scrollSurface(config: ZoomControllerConfig): ZoomSurface {
+  return {
+    isReady: () => !!config.getScrollContainer?.(),
+    applyZoomLayout: (zoom) => config.applyZoomLayout?.(zoom),
+    syncLayout: () => {
+      const container = config.getScrollContainer?.();
+      if (container) void container.scrollWidth;
+    },
+    correctView: (dx, dy) => {
+      const container = config.getScrollContainer?.();
+      if (!container) return;
+      container.scrollLeft += dx;
+      container.scrollTop += dy;
+    }
+  };
+}
+
 export class ContinuousZoomController {
   private config: ZoomControllerConfig;
-  private levels: readonly number[];
+  private staticLevels: readonly number[];
+  private surface: ZoomSurface;
   private animator: Animator;
   private wheelAcc = new WheelAccumulator();
 
@@ -103,12 +148,17 @@ export class ContinuousZoomController {
 
   constructor(config: ZoomControllerConfig) {
     this.config = config;
-    this.levels = config.levels ?? CONTINUOUS_ZOOM_LEVELS;
+    this.staticLevels = config.levels ?? CONTINUOUS_ZOOM_LEVELS;
+    this.surface = config.surface ?? scrollSurface(config);
     this.animator = new Animator(1, (zoom) => this.frameStep(zoom), {
       factor: 0.25,
       epsilon: 0.005,
       onSettle: () => this.settle()
     });
+  }
+
+  private get levels(): readonly number[] {
+    return this.config.getLevels?.() ?? this.staticLevels;
   }
 
   get currentZoom(): number {
@@ -173,6 +223,17 @@ export class ContinuousZoomController {
         { x: viewport.width / 2, y: viewport.height / 2 }
       );
     }
+  }
+
+  /**
+   * Animate to an explicit level, sampling content at `from` and landing it
+   * at `to` (both default to the gesture point semantics of toggleZoom).
+   * Paged mode's contextual double-tap (1 ↔ fit ↔ 2×) computes its own
+   * target and drives this directly.
+   */
+  animateToLevel(level: number, from: Point, to: Point = from): void {
+    if (level === this.target && Math.abs(this.animator.current - level) < ZOOM_EPS) return;
+    this.beginAnimatedGesture(level, from, to);
   }
 
   /**
@@ -272,13 +333,25 @@ export class ContinuousZoomController {
 
   /** Instantly return to 1× (zoom-mode change, viewport resize). */
   reset(): void {
-    this.pinching = false;
-    this.target = 1;
-    this.anchorEl = null; // skip anchor correction; layout cleanup only
-    if (this.animator.current !== 1 || this.animator.isAnimating) {
-      this.animator.snapTo(1);
-      this.settle();
+    if (this.animator.current === 1 && !this.animator.isAnimating && !this.pinching) {
+      this.target = 1;
+      return;
     }
+    this.snapToLevel(1);
+  }
+
+  /**
+   * Apply a level instantly with no anchor correction (layout only) and
+   * settle. Paged mode re-applies a preserved keepZoom level this way on
+   * page turns — animating 1×→3× on every flip would be a constant
+   * annoyance.
+   */
+  snapToLevel(level: number): void {
+    this.pinching = false;
+    this.target = level;
+    this.anchorEl = null; // skip anchor correction; layout placement only
+    this.animator.snapTo(level);
+    this.settle();
   }
 
   destroy(): void {
@@ -290,18 +363,21 @@ export class ContinuousZoomController {
   // ============================================================
 
   private frameStep(zoom: number): void {
-    const container = this.config.getScrollContainer();
-    if (!container) return;
+    if (!this.surface.isReady()) return;
 
-    this.config.applyZoomLayout(zoom);
-    void container.scrollWidth; // force layout before measuring
+    this.surface.applyZoomLayout(zoom);
+    this.surface.syncLayout(); // measurements must see this frame's writes
 
     if (!this.anchorEl) return;
-    const actual = anchorScreenPosition(
-      this.anchorEl.getBoundingClientRect(),
-      this.anchorFx,
-      this.anchorFy
-    );
+    const rect = this.anchorEl.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      // A detached element measures as an all-zero rect — which is finite,
+      // so without this guard it would pass the checks below and apply a
+      // garbage correction. Drop the anchor for the rest of the gesture.
+      this.anchorEl = null;
+      return;
+    }
+    const actual = anchorScreenPosition(rect, this.anchorFx, this.anchorFy);
     const desired = lerp2(
       this.fromScreen,
       this.toScreen,
@@ -310,8 +386,7 @@ export class ContinuousZoomController {
     const dx = actual.x - desired.x;
     const dy = actual.y - desired.y;
     if (Number.isFinite(dx) && Number.isFinite(dy)) {
-      container.scrollLeft += dx;
-      container.scrollTop += dy;
+      this.surface.correctView(dx, dy);
     }
   }
 
@@ -363,3 +438,10 @@ export class ContinuousZoomController {
     this.config.onSettled?.(zoom);
   }
 }
+
+/**
+ * Preferred name going forward — the controller is surface-agnostic and
+ * drives paged mode too. The original export name remains for existing
+ * callers.
+ */
+export { ContinuousZoomController as ZoomController };

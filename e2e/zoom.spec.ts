@@ -350,6 +350,230 @@ test('horizontal LTR: double-tap zooms in and a second double-tap restores 1×',
   expect(r.spacerWidth).toBe('');
 });
 
+// ============================================================
+// Paged mode — real PagedCamera + paged-zoom-layout + controller
+// ============================================================
+
+async function setupPagedWorld(page: Page, opts: { rtl: boolean; mode: string }) {
+  await page.goto('/');
+  await page.waitForTimeout(500);
+
+  await page.evaluate(async ({ rtl, mode }) => {
+    const w = window as any;
+    document.body.innerHTML = '';
+    Object.assign(document.body.style, { margin: '0', overflow: 'hidden', background: '#000' });
+
+    // A 1400x2000 native-size page inside the camera-controlled wrapper
+    const wrapper = document.createElement('div');
+    const pageEl = document.createElement('div');
+    pageEl.dataset.pageIndex = '0';
+    Object.assign(pageEl.style, {
+      width: '1400px',
+      height: '2000px',
+      background: 'hsl(200, 70%, 40%)'
+    });
+    wrapper.appendChild(pageEl);
+    document.body.appendChild(wrapper);
+
+    const layout = await import('/src/lib/reader/paged-zoom-layout.ts');
+    const cameraMod = await import('/src/lib/reader/paged-camera.ts');
+    const controllerMod = await import('/src/lib/reader/zoom-controller.ts');
+    const session = await import('/src/lib/reader/paged-zoom-session.ts');
+
+    const state = {
+      content: { width: 1400, height: 2000 },
+      baseScale: 1,
+      fitScale: 1,
+      rtl,
+      mode
+    };
+
+    const camera = new cameraMod.PagedCamera({
+      getWrapper: () => wrapper,
+      getViewport: () => ({ width: innerWidth, height: innerHeight }),
+      isClampingEnabled: () => true,
+      getDevicePixelRatio: () => devicePixelRatio
+    });
+
+    const controller = new controllerMod.ContinuousZoomController({
+      surface: camera.surface(),
+      getLevels: () => session.pagedLevels(state.baseScale, state.fitScale),
+      getPageElements: () => [pageEl],
+      getViewport: () => ({ width: innerWidth, height: innerHeight })
+    });
+
+    // Drive the REAL shared orchestration (the same function PagedViewport
+    // uses) — a local mirror would hide wiring bugs from the suite.
+    const sessionState = session.createSessionState();
+    function applyBase(content: { width: number; height: number }) {
+      state.content = content;
+      session.applyPagedBase(
+        { camera, controller, state: sessionState },
+        state.mode,
+        content,
+        { width: innerWidth, height: innerHeight },
+        state.rtl
+      );
+      state.baseScale = sessionState.baseScale;
+      state.fitScale = sessionState.fitScale;
+    }
+    applyBase(state.content);
+
+    w.__paged = {
+      camera,
+      controller,
+      state,
+      wrapper,
+      pageEl,
+      applyBase,
+      session,
+      settle: () =>
+        new Promise<void>((resolve, reject) => {
+          const t0 = performance.now();
+          const check = () => {
+            if (!controller.isActive) return resolve();
+            if (performance.now() - t0 > 10000) return reject(new Error('never settled'));
+            requestAnimationFrame(check);
+          };
+          check();
+        }),
+      frac(x: number, y: number) {
+        const r = pageEl.getBoundingClientRect();
+        return { fx: (x - r.left) / r.width, fy: (y - r.top) / r.height };
+      },
+      pos(fx: number, fy: number) {
+        const r = pageEl.getBoundingClientRect();
+        return { x: r.left + fx * r.width, y: r.top + fy * r.height };
+      }
+    };
+  }, opts);
+}
+
+test('paged fit-to-screen: wheel zoom pins overflowing axes, locks fitting axes to center', async ({
+  page
+}) => {
+  await setupPagedWorld(page, { rtl: true, mode: 'zoomFitToScreen' });
+  const r = await page.evaluate(async () => {
+    const z = (window as any).__paged;
+    const wheel = (x: number, y: number) =>
+      z.controller.wheelZoom({
+        deltaY: -120,
+        deltaMode: 0,
+        clientX: x,
+        clientY: y,
+        timeStamp: performance.now()
+      });
+    const cursor = { x: innerWidth / 2 + 150, y: innerHeight / 2 - 100 };
+
+    // 1 -> 1.5x: width (1134) still fits 1920 — X locks to center, Y pins.
+    const frac1 = z.frac(cursor.x, cursor.y);
+    wheel(cursor.x, cursor.y);
+    await z.settle();
+    const pos1 = z.pos(frac1.fx, frac1.fy);
+    const rect1 = z.pageEl.getBoundingClientRect();
+    const zoom1 = z.controller.currentZoom;
+
+    // 2x -> 3x: both axes overflow — the anchor pins exactly at the cursor.
+    wheel(cursor.x, cursor.y);
+    await z.settle();
+    const frac3 = z.frac(cursor.x, cursor.y);
+    wheel(cursor.x, cursor.y);
+    await z.settle();
+    const pos3 = z.pos(frac3.fx, frac3.fy);
+
+    return {
+      cursor,
+      zoom1,
+      pos1,
+      centeredLeft1: rect1.left,
+      expectedCenter1: (innerWidth - rect1.width) / 2,
+      zoom3: z.controller.currentZoom,
+      pos3
+    };
+  });
+  expect(r.zoom1).toBe(1.5);
+  expect(Math.abs(r.pos1.y - r.cursor.y)).toBeLessThan(2); // overflowing axis pinned
+  expect(Math.abs(r.centeredLeft1 - r.expectedCenter1)).toBeLessThan(2); // fitting axis locked
+  expect(r.zoom3).toBe(3);
+  expect(Math.abs(r.pos3.x - r.cursor.x)).toBeLessThan(2);
+  expect(Math.abs(r.pos3.y - r.cursor.y)).toBeLessThan(2);
+});
+
+test('paged: corner reachability under clamping (no edge-blending hack needed)', async ({
+  page
+}) => {
+  await setupPagedWorld(page, { rtl: true, mode: 'zoomFitToScreen' });
+  const r = await page.evaluate(async () => {
+    const z = (window as any).__paged;
+    // Zoom to 3x anchored at the exact top-left corner of the page
+    const rect = z.pageEl.getBoundingClientRect();
+    const corner = { x: rect.left + 1, y: rect.top + 1 };
+    z.controller.cycleZoom(1, corner.x, corner.y);
+    await z.settle();
+    z.controller.cycleZoom(1, corner.x, corner.y);
+    await z.settle();
+    z.controller.cycleZoom(1, corner.x, corner.y);
+    await z.settle();
+
+    // The camera clamp keeps content edges inside the viewport: panning to
+    // the top-left extreme must put the page's corner exactly at (>= 0, >= 0)
+    z.camera.adjustView(-100000, -100000);
+    const after = z.pageEl.getBoundingClientRect();
+    return { zoom: z.controller.currentZoom, left: after.left, top: after.top };
+  });
+  expect(r.zoom).toBe(3);
+  expect(r.left).toBeGreaterThanOrEqual(-1);
+  expect(r.top).toBeGreaterThanOrEqual(-1);
+  expect(r.left).toBeLessThanOrEqual(1);
+  expect(r.top).toBeLessThanOrEqual(1);
+});
+
+test('paged zoomOriginal: double-tap drops to fit, then zooms to 2x', async ({ page }) => {
+  await setupPagedWorld(page, { rtl: true, mode: 'zoomOriginal' });
+  const r = await page.evaluate(async () => {
+    const z = (window as any).__paged;
+    // base 1:1 on a 1400x2000 page overflows a 1920x1080 viewport → floor < 1
+    const levels = z.session.pagedLevels(z.state.baseScale, z.state.fitScale);
+    const floor = levels[0];
+
+    const t1 = z.session.doubleTapTarget(z.controller.currentZoom, floor);
+    z.controller.animateToLevel(t1, { x: 900, y: 500 });
+    await z.settle();
+    const afterFirst = z.controller.currentZoom;
+
+    const t2 = z.session.doubleTapTarget(z.controller.currentZoom, floor);
+    z.controller.animateToLevel(t2, { x: 900, y: 500 });
+    await z.settle();
+    const afterSecond = z.controller.currentZoom;
+
+    return { floor, afterFirst, afterSecond };
+  });
+  expect(r.floor).toBeLessThan(1);
+  expect(r.afterFirst).toBeCloseTo(r.floor, 4); // whole-page escape hatch
+  expect(r.afterSecond).toBe(2);
+});
+
+test('paged keepZoom: effective scale survives a content swap (spread)', async ({ page }) => {
+  await setupPagedWorld(page, { rtl: true, mode: 'keepZoom' });
+  const r = await page.evaluate(async () => {
+    const z = (window as any).__paged;
+    // Zoom in to 2x of the single-page base
+    z.controller.cycleZoom(1, innerWidth / 2, innerHeight / 2);
+    await z.settle();
+    z.controller.cycleZoom(1, innerWidth / 2, innerHeight / 2);
+    await z.settle();
+    const effectiveBefore = z.state.baseScale * z.controller.currentZoom;
+
+    // Swap to a spread (double width) with keepZoom conversion
+    z.pageEl.style.width = '2800px';
+    z.applyBase({ width: 2800, height: 2000 });
+    const effectiveAfter = z.state.baseScale * z.controller.currentZoom;
+
+    return { effectiveBefore, effectiveAfter };
+  });
+  expect(r.effectiveAfter).toBeCloseTo(r.effectiveBefore, 3);
+});
+
 test('vertical fit-to-screen: side margins are not pannable while zoomed', async ({ page }) => {
   // Narrow fixed-size pages (560px in a 1920px viewport): at 2x the scaled
   // content (1120px) still fits, so there must be NO horizontal scroll range

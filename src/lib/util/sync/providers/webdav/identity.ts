@@ -58,12 +58,18 @@ function normalizePermissions(value: unknown): ServerPermissions | null {
 function interpretResponse(
   status: number,
   body: unknown,
-  credsSent: boolean
+  credsSent: boolean,
+  jsonParsed: boolean
 ): IdentityResult | null {
   const record = body && typeof body === 'object' ? (body as Record<string, unknown>) : null;
   const authenticated = record?.authenticated;
 
   if (status === 200) {
+    // A non-JSON 200 (reverse proxy default page, SPA fallback serving the app
+    // shell for the subpath candidate) is not recognizably ours - it must NOT
+    // terminate the search, or it masks a working /login/api/me at the origin
+    // root. Only a parsed-JSON 200 is terminal.
+    if (!jsonParsed) return null;
     if (authenticated === true) {
       const permissions = normalizePermissions(record?.permissions);
       if (permissions) {
@@ -124,13 +130,15 @@ export async function fetchServerIdentity(
       });
 
       let body: unknown = null;
+      let jsonParsed = false;
       try {
         body = await response.json();
+        jsonParsed = true;
       } catch {
         body = null; // non-JSON body: only recognizable via status rules below
       }
 
-      const result = interpretResponse(response.status, body, credsSent);
+      const result = interpretResponse(response.status, body, credsSent, jsonParsed);
       if (result) return result;
     } catch {
       // network error / timeout: try the next candidate

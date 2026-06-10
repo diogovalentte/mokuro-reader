@@ -138,6 +138,25 @@ describe('WebDAVProvider login()', () => {
     expect(provider.isReadOnly).toBe(false);
   });
 
+  it('classifies a 401-bearing FOLDER_ERROR on the unsupported path as an auth-typed LOGIN_FAILED', async () => {
+    // Anonymous-browse server: root PROPFIND succeeds, but the mokuro folder
+    // probe rejects the credentials. Main classified this by message substring
+    // (LOGIN_FAILED + webdavErrorType 'auth'); the AUTH_FAILED rethrow guard
+    // must not bypass that classification (modal type + restore handling).
+    const provider = await freshProvider();
+    identityMock.mockResolvedValue({ kind: 'unsupported' });
+    mockClient.exists.mockRejectedValue(new Error('Request failed with status 401 Unauthorized'));
+
+    await expect(
+      provider.login({ serverUrl: 'https://host', username: 'alice', password: 'bad' })
+    ).rejects.toMatchObject({
+      name: 'ProviderError',
+      code: 'LOGIN_FAILED',
+      webdavErrorType: 'auth',
+      isAuthError: true
+    });
+  });
+
   it('connects read-only without attention flag for anonymous mokuro-bunko sessions', async () => {
     const provider = await freshProvider();
     identityMock.mockResolvedValue({ kind: 'anonymous' });
@@ -193,6 +212,25 @@ describe('WebDAVProvider session restore', () => {
     expect(localStorage.getItem('webdav_username')).toBe('alice');
     // identity was checked WITHOUT credentials
     expect(identityMock).toHaveBeenCalledWith('https://host', undefined, undefined);
+  });
+
+  it('keeps the stored password when restore hits a rate-limited (429) identity check (M-6)', async () => {
+    // A hot server-side limiter (shared NAT being brute-forced, the user's own
+    // other tab) must NOT be treated as credential rejection during startup
+    // restore - the password is still valid and must survive for retry.
+    localStorage.setItem('webdav_server_url', 'https://host');
+    localStorage.setItem('webdav_username', 'alice');
+    localStorage.setItem('webdav_password', 'pw');
+    localStorage.setItem('active_cloud_provider', 'webdav');
+
+    identityMock.mockResolvedValue({ kind: 'rate-limited' });
+
+    const provider = await freshProvider();
+
+    expect(localStorage.getItem('webdav_password')).toBe('pw');
+    expect(localStorage.getItem('webdav_username')).toBe('alice');
+    expect(localStorage.getItem('webdav_server_url')).toBe('https://host');
+    expect(provider.getStatus().needsAttention).toBe(false);
   });
 
   it('keeps credentials on temporary (non-auth) restore failures', async () => {

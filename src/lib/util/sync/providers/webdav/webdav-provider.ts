@@ -255,9 +255,12 @@ export class WebDAVProvider implements SyncProvider {
     } catch (error) {
       this.client = null;
 
-      // Already-classified errors (e.g. AUTH_FAILED from the identity check)
-      // must not be re-wrapped as generic LOGIN_FAILED
-      if (error instanceof ProviderError) {
+      // AUTH_FAILED from the identity check is already fully classified and
+      // must not be re-wrapped as generic LOGIN_FAILED. Every other error
+      // (including ensureMokuroFolder's FOLDER_ERROR) falls through to the
+      // message-based classifier below, exactly as on the pre-identity path,
+      // so the modal type and restore handling keep their legacy behavior.
+      if (error instanceof ProviderError && error.code === 'AUTH_FAILED') {
         throw error;
       }
 
@@ -404,9 +407,15 @@ export class WebDAVProvider implements SyncProvider {
       });
       console.log('Restored WebDAV session from stored credentials');
     } catch (error) {
-      // Branch on the typed error - never on message substrings
+      // Branch on the typed error - never on message substrings.
+      // Retryable errors (isNetworkError, e.g. a rate-limited 429 from the
+      // identity check) are NOT credential rejection: the stored password may
+      // be perfectly valid while the server-side limiter is hot (shared NAT
+      // being brute-forced, the user's own other tab), so it must survive
+      // for a later retry (M-6).
       const isAuthFailure =
         error instanceof ProviderError &&
+        !error.isNetworkError &&
         (error.code === 'AUTH_FAILED' || error.webdavErrorType === 'auth');
 
       if (isAuthFailure) {

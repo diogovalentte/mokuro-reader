@@ -179,13 +179,43 @@ describe('fetchServerIdentity', () => {
     expect(result).toEqual({ kind: 'unsupported' });
   });
 
-  it('returns unsupported for a non-JSON 200', async () => {
-    const { impl } = mockFetch({
+  it('returns unsupported for a non-JSON 200 once all candidates are exhausted', async () => {
+    const { impl, calls } = mockFetch({
+      'https://host/sub/login/api/me': htmlResponse(200, '<html>welcome</html>'),
       'https://host/login/api/me': htmlResponse(200, '<html>welcome</html>')
     });
 
-    const result = await fetchServerIdentity('https://host', 'a', 'pw', impl);
+    const result = await fetchServerIdentity('https://host/sub', 'a', 'pw', impl);
     expect(result).toEqual({ kind: 'unsupported' });
+    // a non-JSON 200 is not recognizably ours - BOTH candidates must be probed
+    expect(calls.map((c) => c.url)).toEqual([
+      'https://host/sub/login/api/me',
+      'https://host/login/api/me'
+    ]);
+  });
+
+  it('advances past a non-JSON 200 (SPA fallback / proxy) to a working origin-root endpoint', async () => {
+    const { impl, calls } = mockFetch({
+      'https://host/sub/login/api/me': htmlResponse(200, '<!doctype html><html>app shell</html>'),
+      'https://host/login/api/me': jsonResponse(200, {
+        authenticated: true,
+        username: 'alice',
+        role: 'registered',
+        permissions: PERMS
+      })
+    });
+
+    const result = await fetchServerIdentity('https://host/sub', 'alice', 'pw', impl);
+    expect(result).toEqual({
+      kind: 'authenticated',
+      username: 'alice',
+      role: 'registered',
+      permissions: PERMS
+    });
+    expect(calls.map((c) => c.url)).toEqual([
+      'https://host/sub/login/api/me',
+      'https://host/login/api/me'
+    ]);
   });
 
   it('returns unsupported for a 500', async () => {

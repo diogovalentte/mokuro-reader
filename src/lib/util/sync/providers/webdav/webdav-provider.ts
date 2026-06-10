@@ -10,6 +10,10 @@ import { ProviderError } from '../../provider-interface';
 import { setActiveProviderKey, clearActiveProviderKey } from '../../provider-detection';
 import type { WebDAVClient } from 'webdav';
 import { getCloudProviderCore } from '../../core/cloud-provider-core-registry';
+import { webdavAuthOptions } from '../../core/providers/webdav-auth';
+import { basicAuthHeader } from '$lib/util/base64';
+import { fetchServerIdentity, type ServerPermissions } from './identity';
+import { classifyWriteError, type WriteErrorKind } from './webdav-errors';
 
 interface WebDAVCredentials {
   serverUrl: string;
@@ -38,6 +42,12 @@ export class WebDAVProvider implements SyncProvider {
   private initPromise: Promise<void>;
   private _isReadOnly: boolean = false;
   private _supportsDepthInfinity: boolean | null = null; // null = unknown, will probe on first use
+  /** Server-reported permissions (mokuro-bunko identity endpoint); null = unknown/generic server */
+  private _capabilities: ServerPermissions | null = null;
+  /** Set when stored credentials were rejected and the user must re-login */
+  private _needsAttention = false;
+  /** Whether the current session was established with a password */
+  private _hasPassword = false;
   private cloudCore = getCloudProviderCore('webdav');
 
   constructor() {
@@ -75,12 +85,32 @@ export class WebDAVProvider implements SyncProvider {
     if (!this._isReadOnly) {
       console.log('📖 WebDAV marked as read-only due to write operation failure');
       this._isReadOnly = true;
-
-      // Trigger status update to refresh UI (import dynamically to avoid circular deps)
-      import('../../provider-manager').then(({ providerManager }) => {
-        providerManager.updateStatus();
-      });
+      this.notifyStatusChanged();
     }
+  }
+
+  /**
+   * Mark the session as auth-failed: clear only the stored password (keep
+   * server URL + username so the login form pre-fills) and flag the provider
+   * as needing attention so the UI prompts a re-login.
+   */
+  private markAuthFailed(): void {
+    if (browser) {
+      localStorage.removeItem(STORAGE_KEYS.PASSWORD); // keep URL + username
+    }
+    this.setNeedsAttention();
+  }
+
+  private setNeedsAttention(): void {
+    this._needsAttention = true;
+    this.notifyStatusChanged();
+  }
+
+  /** Trigger status update to refresh UI (import dynamically to avoid circular deps) */
+  private notifyStatusChanged(): void {
+    import('../../provider-manager').then(({ providerManager }) => {
+      providerManager.updateStatus();
+    });
   }
 
   getStatus(): ProviderStatus {
@@ -91,7 +121,7 @@ export class WebDAVProvider implements SyncProvider {
     return {
       isAuthenticated: isConnected,
       hasStoredCredentials: hasCredentials,
-      needsAttention: false,
+      needsAttention: this._needsAttention,
       statusMessage: isConnected
         ? this._isReadOnly
           ? 'Connected to WebDAV (read-only)'
@@ -118,13 +148,9 @@ export class WebDAVProvider implements SyncProvider {
       // Dynamically import webdav to reduce initial bundle size
       const { createClient } = await import('webdav');
 
-      // Create WebDAV client with optional credentials
-      const clientOptions: { username?: string; password?: string } = {};
-      if (username || password) {
-        clientOptions.username = username || '';
-        clientOptions.password = password || '';
-      }
-      this.client = createClient(normalizedUrl, clientOptions);
+      // Create WebDAV client with a UTF-8-safe Authorization header
+      // (the webdav lib's own Basic-auth encoder corrupts non-ASCII credentials)
+      this.client = createClient(normalizedUrl, webdavAuthOptions(username, password));
 
       // Test connection with timeout (Issue #206 Lesson #3)
       const controller = new AbortController();
@@ -135,18 +161,78 @@ export class WebDAVProvider implements SyncProvider {
         clearTimeout(timeoutId);
       }
 
-      // Ensure mokuro folder exists
-      await this.ensureMokuroFolder();
+      this._hasPassword = !!password;
 
-      // Check write permissions via OPTIONS request
-      this._isReadOnly = !(await this.checkWritePermissions(
-        normalizedUrl,
-        username || '',
-        password || ''
-      ));
-      if (this._isReadOnly) {
-        console.log('📖 WebDAV server is read-only (no PUT/DELETE/MKCOL permissions)');
+      // Ask the server who we are (mokuro-bunko >= 0.1.4 identity endpoint).
+      // Runs BEFORE any write and BEFORE credential persistence so invalid
+      // credentials throw without side effects. A bare PROPFIND "succeeds"
+      // anonymously on mokuro-bunko, so it cannot detect bad credentials.
+      const identity = await fetchServerIdentity(normalizedUrl, username, password);
+
+      switch (identity.kind) {
+        case 'invalid-credentials':
+          throw new ProviderError(
+            'Invalid username or password',
+            'webdav',
+            'AUTH_FAILED',
+            true,
+            false,
+            'auth'
+          );
+
+        case 'rate-limited':
+          throw new ProviderError(
+            'Too many failed attempts - try again later',
+            'webdav',
+            'AUTH_FAILED',
+            true,
+            true,
+            'auth'
+          );
+
+        case 'authenticated':
+          // Permissions come straight from the server - skip OPTIONS guessing
+          this._capabilities = identity.permissions;
+          this._isReadOnly = !(
+            identity.permissions.canWriteProgress || identity.permissions.canAddFiles
+          );
+          if (!this._isReadOnly) {
+            await this.ensureMokuroFolder();
+          }
+          break;
+
+        case 'anonymous':
+          // mokuro-bunko, connected without credentials: read-only by definition
+          this._capabilities = {
+            canWriteProgress: false,
+            canAddFiles: false,
+            canModifyDelete: false
+          };
+          this._isReadOnly = true;
+          break;
+
+        case 'unsupported':
+        default:
+          // Generic WebDAV server (or older mokuro-bunko): keep the existing
+          // heuristics byte-for-byte (copyparty/nextcloud/nginx compatibility)
+          this._capabilities = null;
+
+          // Ensure mokuro folder exists
+          await this.ensureMokuroFolder();
+
+          // Check write permissions via OPTIONS request
+          this._isReadOnly = !(await this.checkWritePermissions(
+            normalizedUrl,
+            username || '',
+            password || ''
+          ));
+          if (this._isReadOnly) {
+            console.log('📖 WebDAV server is read-only (no PUT/DELETE/MKCOL permissions)');
+          }
+          break;
       }
+
+      this._needsAttention = false;
 
       // Store credentials in localStorage (username/password are optional)
       if (browser) {
@@ -168,6 +254,12 @@ export class WebDAVProvider implements SyncProvider {
       console.log('✅ WebDAV login successful');
     } catch (error) {
       this.client = null;
+
+      // Already-classified errors (e.g. AUTH_FAILED from the identity check)
+      // must not be re-wrapped as generic LOGIN_FAILED
+      if (error instanceof ProviderError) {
+        throw error;
+      }
 
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
@@ -227,6 +319,9 @@ export class WebDAVProvider implements SyncProvider {
   async logout(): Promise<void> {
     this.client = null;
     this._supportsDepthInfinity = null; // Reset for next connection (may be different server)
+    this._capabilities = null;
+    this._hasPassword = false;
+    this._needsAttention = false; // Deliberate logout - nothing to flag
 
     if (browser) {
       // Keep URL and username for convenience (Issue #206 Lesson #10)
@@ -277,37 +372,68 @@ export class WebDAVProvider implements SyncProvider {
     const activeProvider = localStorage.getItem('active_cloud_provider');
     const shouldRestore = activeProvider === 'webdav' && serverUrl;
 
-    if (shouldRestore) {
+    if (!shouldRestore) return;
+
+    // A stored username WITHOUT a password marks a previously auth-failed
+    // session (the password was cleared). Reconnect anonymously so the library
+    // stays browsable and prompt the user to re-login.
+    if (username && !password) {
       try {
-        await this.login({
-          serverUrl,
-          username: username || undefined,
-          password: password || undefined
-        });
-        console.log('Restored WebDAV session from stored credentials');
+        await this.login({ serverUrl });
+        // login() without a username removes the stored one - restore it so
+        // the login form keeps pre-filling, then flag for re-login (login()
+        // resets needsAttention on success, so set it afterwards)
+        localStorage.setItem(STORAGE_KEYS.USERNAME, username);
+        this.setNeedsAttention();
+        console.log('Restored anonymous WebDAV session; re-login required for sync');
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
+        console.warn(
+          'Failed to restore WebDAV session (temporary error), will retry on next sync:',
+          errorMessage
+        );
+      }
+      return;
+    }
 
-        // Only clear credentials if they're actually invalid (wrong credentials/URL)
-        // Don't clear on network errors or temporary server issues
-        const isAuthError =
-          errorMessage.includes('401') ||
-          errorMessage.includes('403') ||
-          errorMessage.includes('unauthorized') ||
-          errorMessage.includes('authentication') ||
-          errorMessage.includes('credentials');
+    try {
+      await this.login({
+        serverUrl,
+        username: username || undefined,
+        password: password || undefined
+      });
+      console.log('Restored WebDAV session from stored credentials');
+    } catch (error) {
+      // Branch on the typed error - never on message substrings
+      const isAuthFailure =
+        error instanceof ProviderError &&
+        (error.code === 'AUTH_FAILED' || error.webdavErrorType === 'auth');
 
-        if (isAuthError) {
-          console.error('WebDAV credentials invalid, clearing stored credentials');
-          this.clearAllCredentials();
-          clearActiveProviderKey();
-        } else {
-          // Temporary error - keep credentials for retry later
-          console.warn(
-            'Failed to restore WebDAV session (temporary error), will retry on next sync:',
-            errorMessage
-          );
+      if (isAuthFailure) {
+        // Stale credentials: clear ONLY the password (keep server URL +
+        // username, keep the provider active) so the UI prompts a re-login
+        // instead of silently dropping the whole configuration
+        console.error('WebDAV credentials rejected, clearing stored password');
+        localStorage.removeItem(STORAGE_KEYS.PASSWORD);
+
+        // Best-effort anonymous reconnect so the library stays browsable
+        try {
+          await this.login({ serverUrl });
+        } catch {
+          // Server may not allow anonymous browsing - ignore
         }
+        if (username) {
+          // login() without a username removes the stored one - restore it
+          localStorage.setItem(STORAGE_KEYS.USERNAME, username);
+        }
+        this.setNeedsAttention();
+      } else {
+        // Temporary error - keep credentials for retry later
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.warn(
+          'Failed to restore WebDAV session (temporary error), will retry on next sync:',
+          errorMessage
+        );
       }
     }
   }
@@ -347,12 +473,13 @@ export class WebDAVProvider implements SyncProvider {
     password: string
   ): Promise<boolean> {
     const url = `${baseUrl}${MOKURO_FOLDER}/`;
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/xml'
     };
 
-    if (username || password) {
-      headers['Authorization'] = 'Basic ' + btoa(`${username}:${password}`);
+    if (password) {
+      // UTF-8-safe encoding; header only when a password is set (anonymous otherwise)
+      headers['Authorization'] = basicAuthHeader(username, password);
     }
 
     // Try PROPFIND with current-user-privilege-set first (RFC 3744 - WebDAV ACL)
@@ -429,7 +556,7 @@ export class WebDAVProvider implements SyncProvider {
 
       const response = await fetch(url, {
         method: 'OPTIONS',
-        headers: { Authorization: headers['Authorization'] || '' }
+        headers: headers['Authorization'] ? { Authorization: headers['Authorization'] } : {}
       });
 
       console.log('[WebDAV] OPTIONS response status:', response.status);
@@ -671,26 +798,9 @@ export class WebDAVProvider implements SyncProvider {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
-      // Check for permission errors - mark as read-only
-      // 401 = Unauthorized (read-only token), 403 = Forbidden, 405 = Method Not Allowed
-      if (
-        errorMessage.includes('401') ||
-        errorMessage.includes('403') ||
-        errorMessage.includes('405') ||
-        errorMessage.includes('Unauthorized') ||
-        errorMessage.includes('Forbidden') ||
-        errorMessage.includes('Method Not Allowed') ||
-        errorMessage.includes('Permission denied')
-      ) {
-        this.markAsReadOnly();
-        throw new ProviderError(
-          'Write permission denied - server is read-only',
-          'webdav',
-          'PERMISSION_DENIED',
-          false,
-          false,
-          'permission'
-        );
+      const kind = classifyWriteError(errorMessage);
+      if (kind !== 'other') {
+        this.handleWriteFailure(kind, 'Write permission denied - server is read-only');
       }
 
       throw new ProviderError(
@@ -739,21 +849,49 @@ export class WebDAVProvider implements SyncProvider {
     };
   }
 
-  private isWebDAVPermissionError(errorMessage: string): boolean {
-    return (
-      errorMessage.includes('401') ||
-      errorMessage.includes('403') ||
-      errorMessage.includes('405') ||
-      errorMessage.includes('Unauthorized') ||
-      errorMessage.includes('Forbidden') ||
-      errorMessage.includes('Method Not Allowed') ||
-      errorMessage.includes('Permission denied')
-    );
-  }
+  /**
+   * Central policy for failed write operations:
+   * - 401 with a password-backed session: credentials were rejected -> clear
+   *   the stored password and prompt re-login (NOT a read-only server)
+   * - 403 when the server told us we CAN write progress: an isolated
+   *   permission error (e.g. library upload as a registered user) -> clear
+   *   message, but do NOT demote to read-only (that would hide progress sync)
+   * - everything else (405, 403 on unknown/low capabilities, 401 on a
+   *   credential-less session): legacy behavior - mark read-only
+   */
+  private handleWriteFailure(kind: WriteErrorKind, readOnlyMessage: string): never {
+    if (kind === 'auth' && this._hasPassword) {
+      this.markAuthFailed();
+      throw new ProviderError(
+        'Authentication failed - please sign in again',
+        'webdav',
+        'AUTH_FAILED',
+        true,
+        false,
+        'auth'
+      );
+    }
 
-  private throwWritePermissionError(message: string): never {
+    if (kind === 'permission' && this._capabilities?.canWriteProgress === true) {
+      throw new ProviderError(
+        'Your account does not have permission for this operation on this server',
+        'webdav',
+        'PERMISSION_DENIED',
+        false,
+        false,
+        'permission'
+      );
+    }
+
     this.markAsReadOnly();
-    throw new ProviderError(message, 'webdav', 'PERMISSION_DENIED', false, false, 'permission');
+    throw new ProviderError(
+      readOnlyMessage,
+      'webdav',
+      'PERMISSION_DENIED',
+      false,
+      false,
+      'permission'
+    );
   }
 
   async downloadFile(
@@ -797,8 +935,9 @@ export class WebDAVProvider implements SyncProvider {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
-      if (this.isWebDAVPermissionError(errorMessage)) {
-        this.throwWritePermissionError('Delete permission denied - server is read-only');
+      const kind = classifyWriteError(errorMessage);
+      if (kind !== 'other') {
+        this.handleWriteFailure(kind, 'Delete permission denied - server is read-only');
       }
 
       throw new ProviderError(
@@ -851,8 +990,9 @@ export class WebDAVProvider implements SyncProvider {
       }
 
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (this.isWebDAVPermissionError(errorMessage)) {
-        this.throwWritePermissionError('Rename permission denied - server is read-only');
+      const kind = classifyWriteError(errorMessage);
+      if (kind !== 'other') {
+        this.handleWriteFailure(kind, 'Rename permission denied - server is read-only');
       }
 
       throw new ProviderError(
@@ -919,8 +1059,9 @@ export class WebDAVProvider implements SyncProvider {
       }
 
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      if (this.isWebDAVPermissionError(errorMessage)) {
-        this.throwWritePermissionError('Rename permission denied - server is read-only');
+      const kind = classifyWriteError(errorMessage);
+      if (kind !== 'other') {
+        this.handleWriteFailure(kind, 'Rename permission denied - server is read-only');
       }
 
       throw new ProviderError(
@@ -958,23 +1099,11 @@ export class WebDAVProvider implements SyncProvider {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
-      const isPermissionError =
-        errorMessage.includes('401') ||
-        errorMessage.includes('403') ||
-        errorMessage.includes('Unauthorized') ||
-        errorMessage.includes('Forbidden') ||
-        errorMessage.includes('Permission denied');
-
-      if (isPermissionError) {
-        this.markAsReadOnly();
-        throw new ProviderError(
-          'Delete permission denied - server is read-only',
-          'webdav',
-          'PERMISSION_DENIED',
-          false,
-          false,
-          'permission'
-        );
+      // 401/403 go through the central write-failure policy; 405/409 fall
+      // through to the per-file deletion fallback below (unchanged behavior)
+      const kind = classifyWriteError(errorMessage);
+      if (kind === 'auth' || kind === 'permission') {
+        this.handleWriteFailure(kind, 'Delete permission denied - server is read-only');
       }
 
       const needsPerFileFallback =

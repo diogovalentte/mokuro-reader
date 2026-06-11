@@ -6,7 +6,7 @@
   import PagedViewport from './PagedViewport.svelte';
   import { pagedZoom } from '$lib/reader/paged-zoom';
   import { setInstantAnimations } from '$lib/reader/animator';
-  import { gestureTargetRole, keyboardShouldIgnore } from '$lib/reader/input/gesture-target';
+  import { keyboardShouldIgnore } from '$lib/reader/input/gesture-target';
   import { toggleFullScreen } from '$lib/util/fullscreen';
   import {
     effectiveVolumeSettings,
@@ -26,7 +26,6 @@
   import MangaPage from './MangaPage.svelte';
   import TextBoxContextMenu from './TextBoxContextMenu.svelte';
   import {
-    cropperStore,
     openCreateModal,
     openUpdateModal,
     sendQuickCapture,
@@ -75,43 +74,9 @@
   );
 
   let start: Date;
-  let textBoxWasActive = false;
-  let pointerDownX = 0;
-  let pointerDownY = 0;
-  const DRAG_THRESHOLD = 5;
 
   function mouseDown() {
     start = new Date();
-  }
-
-  function handleOverlayPointerDown(e: PointerEvent) {
-    pointerDownX = e.clientX;
-    pointerDownY = e.clientY;
-
-    const target = e.target as HTMLElement;
-    if (gestureTargetRole(target) === 'textbox') {
-      textBoxWasActive = true;
-    }
-  }
-
-  function handleOverlayToggle(e: MouseEvent) {
-    const target = e.target as HTMLElement;
-
-    // Clicking on a text box — don't toggle
-    if (gestureTargetRole(target) === 'textbox') return;
-
-    // Ignore drags/pans — only toggle on stationary clicks
-    const dx = e.clientX - pointerDownX;
-    const dy = e.clientY - pointerDownY;
-    if (dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD) return;
-
-    // First tap outside after interacting with a text box dismisses it without toggling
-    if (textBoxWasActive) {
-      textBoxWasActive = false;
-      return;
-    }
-
-    overlaysVisible = !overlaysVisible;
   }
 
   export function toggleHasCover(volumeId: string) {
@@ -447,98 +412,6 @@
     }
   }
 
-  let startX = 0;
-  let startY = 0;
-  let touchStart: Date;
-  let lastMultiTouchTime = 0; // Timestamp of last multi-touch event
-  // Pan-edge state captured at the start of a single-finger gesture.
-  // When the user begins a gesture while more content is hidden in a given
-  // direction, we treat any horizontal motion in that direction as a pan
-  // rather than a page-flip swipe (issue #186).
-  let canRevealLeftAtStart = false;
-  let canRevealRightAtStart = false;
-
-  function handleTouchStart(event: TouchEvent) {
-    if (!$settings.mobile) return;
-    if ($cropperStore?.open) return;
-    if ($settings.continuousScroll) return; // Continuous mode handles its own touch
-    if (event.touches.length > 1) return; // Ignore multi-touch starts
-
-    // Capture start position for single-finger gesture
-    const { clientX, clientY } = event.touches[0];
-    touchStart = new Date();
-    startX = clientX;
-    startY = clientY;
-
-    // Snapshot how much pannable content exists in each horizontal direction
-    // right now, so that a subsequent swipe can be classified as either a
-    // page-flip (only when already at the relevant edge) or an intra-page pan.
-    const edgeState = $pagedZoom?.edgeState() ?? { canRevealLeft: false, canRevealRight: false };
-    canRevealLeftAtStart = edgeState.canRevealLeft;
-    canRevealRightAtStart = edgeState.canRevealRight;
-  }
-
-  function handlePointerUp(event: TouchEvent) {
-    if (!$settings.mobile) return;
-    if ($settings.continuousScroll) return; // Continuous mode handles its own touch
-    if ($cropperStore?.open) return; // Don't process swipes when Anki modal is open
-
-    // If fingers remain, this was a multi-touch gesture - mark it and wait
-    if (event.touches.length !== 0) {
-      lastMultiTouchTime = Date.now();
-      return;
-    }
-
-    // Ignore swipes within 200ms of a multi-touch gesture (pinch-zoom)
-    if (Date.now() - lastMultiTouchTime < 200) return;
-
-    const { clientX, clientY } = event.changedTouches[0];
-
-    const distanceX = clientX - startX;
-    const distanceY = clientY - startY;
-
-    // Vertical threshold scales with viewport for consistent feel across devices
-    const verticalThreshold = Math.min(200, window.innerHeight * 0.3);
-    const isSwipe = Math.abs(distanceY) < verticalThreshold;
-
-    const touchDuration = Date.now() - touchStart?.getTime();
-
-    if (isSwipe && touchDuration < 500) {
-      const swipeThreshold = ($settings.swipeThreshold / 100) * window.innerWidth;
-
-      // Only flip if the user was already at the relevant pan edge when the
-      // gesture began. Otherwise the gesture is an intra-page pan and we
-      // leave page navigation alone (issue #186).
-      if (distanceX > swipeThreshold && !canRevealLeftAtStart) {
-        left(event, true);
-      } else if (distanceX < -swipeThreshold && !canRevealRightAtStart) {
-        right(event, true);
-      }
-    }
-  }
-
-  function onDoubleTap(event: MouseEvent) {
-    // Double-tap on a text box is the AnkiConnect capture gesture.
-    if (gestureTargetRole(event.target) === 'textbox') return;
-    $pagedZoom?.doubleTap(event.clientX, event.clientY);
-  }
-
-  // Wheel handler wrapper.
-  // We only intercept wheel events that originate inside our reader content
-  // (the paged viewport marked with data-mokuro-reader). Anything else —
-  // settings drawer, popovers, dialogs, and extension overlays like Migaku
-  // and Yomitan popups (which inject into <body>, often inside shadow DOM) —
-  // is left alone so the browser's default scroll handling can apply.
-  function handleWheelEvent(e: WheelEvent) {
-    // In continuous scroll mode, let the scroll readers handle wheel events
-    if ($settings.continuousScroll) return;
-
-    const target = e.target as HTMLElement;
-    if (!target.closest('[data-mokuro-reader]')) return;
-
-    $pagedZoom?.handleWheel(e);
-  }
-
   onMount(() => {
     // Set the timeout duration from settings
     activityTracker.setTimeoutDuration($settings.inactivityTimeoutMinutes);
@@ -553,17 +426,11 @@
     // Prevent scrollbars from appearing when in reader mode
     document.documentElement.style.overflow = 'hidden';
 
-    // Add wheel listener with capture to intercept ctrl+wheel before browser handles it
-    // passive: false is required to allow preventDefault()
-    window.addEventListener('wheel', handleWheelEvent, { capture: true, passive: false });
-
     return () => {
       // Stop activity tracker when component unmounts
       activityTracker.stop();
       // Restore overflow when leaving reader
       document.documentElement.style.overflow = '';
-      // Remove wheel listener
-      window.removeEventListener('wheel', handleWheelEvent, { capture: true });
     };
   });
 
@@ -1258,8 +1125,6 @@
     // The paged viewport re-applies its base on resize internally.
   }}
   onkeydown={handleShortcuts}
-  ontouchstart={handleTouchStart}
-  ontouchend={handlePointerUp}
   onscroll={() => {
     // Detect and fix scroll position drift caused by scrolling in overlays
     // (e.g., settings menu) that affects the underlying document
@@ -1380,6 +1245,8 @@
         contentSize={pagedContentSize}
         pageKey={page}
         rtl={volumeSettings.rightToLeft ?? true}
+        onPageFlip={(side) => (side === 'left' ? left(null, true) : right(null, true))}
+        onOverlayToggle={() => (overlaysVisible = !overlaysVisible)}
       >
         <button
           aria-label="Previous page (left edge)"
@@ -1407,15 +1274,7 @@
           onmousedown={mouseDown}
           onmouseup={right}
         ></button>
-        <div
-          class="grid"
-          style:filter={$imageFilter}
-          ondblclick={onDoubleTap}
-          onpointerdown={handleOverlayPointerDown}
-          onclick={handleOverlayToggle}
-          role="none"
-          id="manga-panel"
-        >
+        <div class="grid" style:filter={$imageFilter} id="manga-panel">
           {#key page}
             <div
               class="col-start-1 row-start-1 flex flex-row"

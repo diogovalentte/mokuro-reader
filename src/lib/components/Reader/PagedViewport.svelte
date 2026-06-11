@@ -15,6 +15,8 @@
   import { pagedZoom, type PagedZoomApi } from '$lib/reader/paged-zoom';
   import { PointerGestureTracker } from '$lib/reader/input/pointer-tracker';
   import { gestureTargetRole } from '$lib/reader/input/gesture-target';
+  import { TapDiscriminator } from '$lib/reader/input/tap';
+  import { classifySwipe } from '$lib/reader/input/swipe';
   import type { MotionGate } from '$lib/reader/input/motion-gate';
 
   interface Props {
@@ -27,10 +29,18 @@
      */
     pageKey: number | string;
     rtl: boolean;
+    /**
+     * An edge-gated swipe asked for the page on this VISUAL side ('left' =
+     * rightward swipe revealing the left page). RTL mapping is the
+     * caller's concern.
+     */
+    onPageFlip?: (side: 'left' | 'right') => void;
+    /** A lone tap on the page surface (not text box / chrome). */
+    onOverlayToggle?: () => void;
     children?: Snippet;
   }
 
-  let { contentSize, pageKey, rtl, children }: Props = $props();
+  let { contentSize, pageKey, rtl, onPageFlip, onOverlayToggle, children }: Props = $props();
 
   let wrapperEl: HTMLDivElement | undefined = $state();
   let viewportWidth = $state(typeof window !== 'undefined' ? window.innerWidth : 1024);
@@ -98,7 +108,8 @@
   }
 
   // ============================================================
-  // Wheel (window-level delegate — Reader routes reader-targeted events here)
+  // Wheel — attached to the wrapper (non-passive, so ctrl+wheel can
+  // preventDefault the browser page-zoom)
   // ============================================================
 
   /** Interrupt choke points — see MotionGate for the contract. */
@@ -164,10 +175,7 @@
   }
 
   const api: PagedZoomApi = {
-    handleWheel,
-    doubleTap,
     scrollImage,
-    edgeState: () => camera.edgeState(),
     zoomFitToScreen
   };
 
@@ -187,14 +195,36 @@
   //   was cleared mid-gesture by a base re-application (rotation, page turn)
   // ============================================================
 
+  // Edge state sampled at press, BEFORE the pan moves the camera — swipe
+  // classification needs to know what was hidden when the gesture began.
+  let edgeAtPress = { canRevealLeft: false, canRevealRight: false };
+
   const tracker = new PointerGestureTracker({
     getElement: () => wrapperEl,
     capturePolicy: 'deferred',
-    suppressPan: (e) => e.pointerType !== 'touch' && gestureTargetRole(e.target) === 'textbox',
-    onPress: () => motion.beforeManualPan(),
+    suppressPan: (e) => {
+      if (gestureTargetRole(e.target) !== 'textbox') return false;
+      // Any press on a text box marks the next outside tap as a dismissal.
+      taps.noteTextBoxInteraction();
+      return e.pointerType !== 'touch';
+    },
+    onPress: () => {
+      motion.beforeManualPan();
+      edgeAtPress = camera.edgeState();
+    },
     onPanMove: (_p, d) => camera.adjustView(-d.dx, -d.dy),
     onPanEnd: (s) => {
       if (s.panned) camera.settle();
+      if (!$settings.mobile) return;
+      const side = classifySwipe({
+        summary: s,
+        wasPinch: tracker.wasPinch,
+        viewport: { width: viewportWidth, height: viewportHeight },
+        thresholdPercent: $settings.swipeThreshold,
+        canRevealLeftAtStart: edgeAtPress.canRevealLeft,
+        canRevealRightAtStart: edgeAtPress.canRevealRight
+      });
+      if (side) onPageFlip?.(side);
     },
     onPinchStart: (pts) => {
       motion.beforeZoom();
@@ -219,14 +249,31 @@
     }
   });
 
+  // 'immediate' reproduces the native click/click/dblclick sequence this
+  // surface was built on — instant overlay toggles, zoom on the second tap.
+  const taps = new TapDiscriminator({
+    commitPolicy: 'immediate',
+    onTap: () => onOverlayToggle?.(),
+    onDoubleTap: (x, y) => doubleTap(x, y)
+  });
+
+  function handleClick(e: MouseEvent) {
+    if (gestureTargetRole(e.target) !== 'page') return;
+    if (tracker.wasDrag) return;
+    taps.tap(e.clientX, e.clientY);
+  }
+
   onMount(() => {
     pagedZoom.set(api);
     tracker.attach();
+    wrapperEl?.addEventListener('wheel', handleWheel, { passive: false });
   });
 
   onDestroy(() => {
     pagedZoom.set(undefined);
     tracker.detach();
+    taps.cancel();
+    wrapperEl?.removeEventListener('wheel', handleWheel);
     controller.destroy();
     camera.destroy();
   });
@@ -234,6 +281,12 @@
 
 <svelte:window onresize={handleResize} />
 
-<div bind:this={wrapperEl} data-mokuro-reader style:touch-action="none" role="none">
+<div
+  bind:this={wrapperEl}
+  data-mokuro-reader
+  style:touch-action="none"
+  onclick={handleClick}
+  role="none"
+>
   {@render children?.()}
 </div>

@@ -99,3 +99,64 @@ describe('TapDiscriminator (deferred commit — scroll readers)', () => {
     fast.cancel();
   });
 });
+
+describe("TapDiscriminator (immediate commit — paged mode's native-click feel)", () => {
+  let onTap: ReturnType<typeof vi.fn>;
+  let onDoubleTap: ReturnType<typeof vi.fn>;
+  let taps: TapDiscriminator;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    onTap = vi.fn();
+    onDoubleTap = vi.fn();
+    taps = new TapDiscriminator({ commitPolicy: 'immediate', onTap, onDoubleTap });
+  });
+
+  afterEach(() => {
+    taps.cancel();
+    vi.useRealTimers();
+  });
+
+  it('commits every tap instantly', () => {
+    taps.tap(100, 200);
+    expect(onTap).toHaveBeenCalledTimes(1);
+    expect(onTap).toHaveBeenCalledWith(100, 200);
+  });
+
+  it('a second tap within the window commits AND double-taps (native click/click/dblclick)', () => {
+    taps.tap(100, 200);
+    vi.advanceTimersByTime(150);
+    taps.tap(110, 205);
+    expect(onTap).toHaveBeenCalledTimes(2); // both taps committed — overlay toggles twice, net zero
+    expect(onDoubleTap).toHaveBeenCalledTimes(1);
+    expect(onDoubleTap).toHaveBeenCalledWith(110, 205);
+  });
+
+  it('slow second tap is just another single tap', () => {
+    taps.tap(100, 200);
+    vi.advanceTimersByTime(400);
+    taps.tap(100, 200);
+    expect(onTap).toHaveBeenCalledTimes(2);
+    expect(onDoubleTap).not.toHaveBeenCalled();
+  });
+
+  it('a third quick tap after a double-tap starts a fresh cycle', () => {
+    taps.tap(0, 0);
+    vi.advanceTimersByTime(100);
+    taps.tap(0, 0); // double
+    vi.advanceTimersByTime(100);
+    taps.tap(0, 0); // fresh first tap
+    expect(onDoubleTap).toHaveBeenCalledTimes(1);
+    expect(onTap).toHaveBeenCalledTimes(3);
+  });
+
+  it('swallows the post-text-box dismissal tap without committing or arming', () => {
+    taps.noteTextBoxInteraction();
+    taps.tap(100, 200);
+    expect(onTap).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(50);
+    taps.tap(100, 200); // fresh FIRST tap, not a double
+    expect(onTap).toHaveBeenCalledTimes(1);
+    expect(onDoubleTap).not.toHaveBeenCalled();
+  });
+});

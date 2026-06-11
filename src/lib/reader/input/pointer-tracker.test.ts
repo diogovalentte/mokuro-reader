@@ -367,3 +367,74 @@ describe('PointerGestureTracker — cancelPan', () => {
     expect(events.onPinchMove).toHaveBeenCalledTimes(1);
   });
 });
+
+const cancelWin = (p: Parameters<typeof pe>[1]) => window.dispatchEvent(pe('pointercancel', p));
+
+describe('PointerGestureTracker — adversarial review fixes', () => {
+  it('sets wasPinch BEFORE the upgrade onPanEnd fires (no swipe at pinch start)', () => {
+    let wasPinchAtPanEnd: boolean | null = null;
+    const world = makeWorld({
+      onPanEnd: vi.fn(() => {
+        wasPinchAtPanEnd = world.tracker.wasPinch;
+      })
+    });
+    const { element } = world;
+    // fast swipe-shaped touch pan...
+    down(element, { x: 300, y: 100, ptype: 'touch' });
+    move(element, { x: 140, y: 100, ptype: 'touch' });
+    // ...then a second finger lands: pan upgrades to pinch
+    down(element, { id: 2, x: 400, y: 200, ptype: 'touch' });
+    expect(wasPinchAtPanEnd).toBe(true);
+  });
+
+  it('marks cancelled pans in the summary, using the last-known pan position', () => {
+    const { element, events } = makeWorld();
+    down(element, { x: 300, y: 100, ptype: 'touch' });
+    move(element, { x: 150, y: 100, ptype: 'touch' });
+    cancelWin({ x: 0, y: 0, ptype: 'touch' }); // browsers may report 0,0 on cancel
+    expect(events.onPanEnd).toHaveBeenCalledTimes(1);
+    const [summary] = events.onPanEnd.mock.calls[0];
+    expect(summary.cancelled).toBe(true);
+    expect(summary.endX).toBe(150); // last move, not the cancel's bogus coords
+  });
+
+  it('a normal release reports cancelled: false', () => {
+    const { element, events } = makeWorld();
+    down(element, { x: 100, y: 100 });
+    move(element, { x: 150, y: 100 });
+    upWin({ x: 150, y: 100 });
+    expect(events.onPanEnd.mock.calls[0][0].cancelled).toBe(false);
+  });
+
+  it('evaluates suppressPan for non-primary buttons (right-click arms textbox dismissal)', () => {
+    const suppressPan = vi.fn(() => true);
+    const { element } = makeWorld({ suppressPan });
+    down(element, { x: 100, y: 100, button: 2 });
+    expect(suppressPan).toHaveBeenCalledTimes(1);
+    upWin({ x: 100, y: 100, button: 2 });
+  });
+
+  it('does not hand the pinch-survivor pan to a suppressed pointer', () => {
+    const { element, events } = makeWorld({
+      suppressPan: (e) => (e as any).clientX === 999, // pointer at x=999 is on a "textbox"
+      pinchSurvivorPans: true
+    });
+    down(element, { x: 999, y: 100 }); // suppressed (selection drag)
+    down(element, { id: 2, x: 300, y: 100 }); // pinch
+    upWin({ id: 2, x: 300, y: 100 }); // survivor = suppressed pointer
+    move(element, { x: 950, y: 100 });
+    move(element, { x: 900, y: 100 });
+    expect(events.onPanStart).not.toHaveBeenCalled();
+    upWin({ x: 900, y: 100 });
+  });
+
+  it('a suppressed press that moves past the threshold still counts as a drag (click suppression)', () => {
+    const { tracker, element } = makeWorld({ suppressPan: () => true });
+    down(element, { x: 100, y: 100 });
+    move(element, { x: 160, y: 100 }); // selection drag, not a pan
+    expect(tracker.isPanning).toBe(false);
+    expect(tracker.wasDrag).toBe(true); // but the ensuing click must not count as a tap
+    upWin({ x: 160, y: 100 });
+    expect(tracker.wasDrag).toBe(true);
+  });
+});

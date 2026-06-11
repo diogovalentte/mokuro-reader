@@ -253,6 +253,9 @@
   // surface was built on — instant overlay toggles, zoom on the second tap.
   const taps = new TapDiscriminator({
     commitPolicy: 'immediate',
+    // Native dblclick (which this surface used before) required the clicks
+    // to land near each other — keep that gate.
+    maxDoubleTapDistancePx: 40,
     onTap: () => onOverlayToggle?.(),
     onDoubleTap: (x, y) => doubleTap(x, y)
   });

@@ -29,6 +29,12 @@ export interface TapDiscriminatorConfig {
   commitPolicy?: 'deferred' | 'immediate';
   /** Double-tap window in ms. */
   doubleTapDelayMs?: number;
+  /**
+   * Two taps further apart than this are two singles, not a double —
+   * restores the proximity gate native dblclick gave paged mode. Default:
+   * unlimited (the scroll readers never had one).
+   */
+  maxDoubleTapDistancePx?: number;
   /** A lone tap, fired after the window closes. */
   onTap?(x: number, y: number): void;
   /** Second tap within the window, at the second tap's position. */
@@ -38,6 +44,8 @@ export interface TapDiscriminatorConfig {
 export class TapDiscriminator {
   private config: TapDiscriminatorConfig;
   private lastTapTime: number | null = null;
+  private lastTapX = 0;
+  private lastTapY = 0;
   private pending: ReturnType<typeof setTimeout> | null = null;
   private swallowNext = false;
 
@@ -54,12 +62,24 @@ export class TapDiscriminator {
   tap(x: number, y: number): void {
     if (this.swallowNext) {
       this.swallowNext = false;
+      // Immediate mode arms anyway: in the old paged code the dismissal
+      // only consumed the toggle, so a double-tap right after a text-box
+      // interaction still zoomed (click2 toggled + native dblclick fired).
+      if (this.config.commitPolicy === 'immediate') {
+        this.lastTapTime = performance.now();
+        this.lastTapX = x;
+        this.lastTapY = y;
+      }
       return;
     }
 
     const delay = this.config.doubleTapDelayMs ?? 300;
+    const maxDist = this.config.maxDoubleTapDistancePx ?? Infinity;
     const now = performance.now();
-    const isSecondTap = this.lastTapTime !== null && now - this.lastTapTime < delay;
+    const isSecondTap =
+      this.lastTapTime !== null &&
+      now - this.lastTapTime < delay &&
+      Math.hypot(x - this.lastTapX, y - this.lastTapY) <= maxDist;
 
     if (this.config.commitPolicy === 'immediate') {
       this.config.onTap?.(x, y);
@@ -68,6 +88,8 @@ export class TapDiscriminator {
         this.config.onDoubleTap?.(x, y);
       } else {
         this.lastTapTime = now;
+        this.lastTapX = x;
+        this.lastTapY = y;
       }
       return;
     }
@@ -80,6 +102,8 @@ export class TapDiscriminator {
     }
 
     this.lastTapTime = now;
+    this.lastTapX = x;
+    this.lastTapY = y;
     this.clearPending();
     this.pending = setTimeout(() => {
       this.pending = null;

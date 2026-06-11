@@ -34,6 +34,11 @@ export interface TrackedPointer {
   x: number;
   y: number;
   type: string;
+  /** Position at press — drift detection for suppressed (selection) drags. */
+  pressX: number;
+  pressY: number;
+  /** Pan eligibility evaluated at press (primary button, not suppressed). */
+  canPan: boolean;
 }
 
 export interface PanDeltas {
@@ -48,6 +53,14 @@ export interface PanDeltas {
 export interface PanSummary {
   /** Whether the press ever crossed the drag threshold. */
   panned: boolean;
+  /**
+   * The gesture did not end by the user's release: the OS cancelled the
+   * pointer (pointercancel — system gestures, orientation change, overlays)
+   * or the surface interrupted it (cancelPan). Cancelled summaries must
+   * never classify as swipes; pointercancel coordinates are unreliable, so
+   * endX/endY hold the last-known pan position instead.
+   */
+  cancelled: boolean;
   startX: number;
   startY: number;
   endX: number;
@@ -199,7 +212,7 @@ export class PointerGestureTracker {
    * from onPinchStart (where the tracker is mid-upgrade).
    */
   cancelPan(): void {
-    if (this.panEngaged) this.finishPan(this.panLastX, this.panLastY);
+    if (this.panEngaged) this.finishPan(this.panLastX, this.panLastY, true);
     this.resetPan();
   }
 
@@ -209,11 +222,20 @@ export class PointerGestureTracker {
       this.dragSinceLastPress = false;
       this.pinchSinceLastPress = false;
     }
+    // Eligibility is decided at press time for EVERY pointer — suppressPan
+    // runs even for non-primary buttons and pinch fingers, both because its
+    // side effects matter (a right-click on a text box must still arm the
+    // tap-dismissal) and because the pinch-survivor handoff needs it later.
+    const suppressed = this.config.suppressPan?.(e) ?? false;
+    const canPan = e.button === 0 && !suppressed;
     this.pointers.set(e.pointerId, {
       id: e.pointerId,
       x: e.clientX,
       y: e.clientY,
-      type: e.pointerType
+      type: e.pointerType,
+      pressX: e.clientX,
+      pressY: e.clientY,
+      canPan
     });
 
     if (this.pointers.size >= 2) {
@@ -221,8 +243,7 @@ export class PointerGestureTracker {
       return;
     }
 
-    if (e.button !== 0) return;
-    if (this.config.suppressPan?.(e)) return;
+    if (!canPan) return;
 
     this.panId = e.pointerId;
     this.panEligible = true;
@@ -254,7 +275,16 @@ export class PointerGestureTracker {
       return;
     }
 
-    if (!this.panEligible || this.panId !== e.pointerId) return;
+    if (!this.panEligible || this.panId !== e.pointerId) {
+      // A suppressed press (selection drag, non-primary button) that drifts
+      // past the threshold is still a drag for click purposes — the ensuing
+      // click must not toggle overlays or consume the dismissal swallow.
+      if (!this.dragSinceLastPress && this.pointers.size === 1) {
+        const drift = Math.hypot(e.clientX - tracked.pressX, e.clientY - tracked.pressY);
+        if (drift > (this.config.dragThreshold ?? 5)) this.dragSinceLastPress = true;
+      }
+      return;
+    }
 
     const dx = e.clientX - this.panLastX;
     const dy = e.clientY - this.panLastY;
@@ -300,7 +330,10 @@ export class PointerGestureTracker {
       this.pinching = false;
       const remaining = this.points()[0] ?? null;
       this.config.onPinchEnd?.(remaining);
-      if (remaining && this.config.pinchSurvivorPans) {
+      // Only an eligible pointer may inherit the pan — a suppressed press
+      // (pen on a text box mid-selection) must not start panning because a
+      // stray second finger came and went.
+      if (remaining && remaining.canPan && this.config.pinchSurvivorPans) {
         // The survivor continues as a fresh pan from its current position.
         this.panId = remaining.id;
         this.panEligible = true;
@@ -316,24 +349,32 @@ export class PointerGestureTracker {
     }
 
     if (this.panId === e.pointerId) {
-      this.finishPan(e.clientX, e.clientY);
+      const cancelled = evt.type === 'pointercancel';
+      this.finishPan(
+        cancelled ? this.panLastX : e.clientX,
+        cancelled ? this.panLastY : e.clientY,
+        cancelled
+      );
       this.resetPan();
     }
   };
 
   private beginPinch(): void {
-    if (this.panEngaged) this.finishPan(this.panLastX, this.panLastY);
-    this.resetPan();
+    // Flags first: the upgrade's onPanEnd fires synchronously below, and
+    // consumers read wasPinch there to veto swipe classification.
     this.pinching = true;
     this.pinchSinceLastPress = true;
     this.dragSinceLastPress = true;
+    if (this.panEngaged) this.finishPan(this.panLastX, this.panLastY);
+    this.resetPan();
     this.config.onPinchStart?.(this.points());
   }
 
-  private finishPan(endX: number, endY: number): void {
+  private finishPan(endX: number, endY: number, cancelled = false): void {
     this.releaseCapture();
     this.config.onPanEnd?.({
       panned: this.panEngaged,
+      cancelled,
       startX: this.panStartX,
       startY: this.panStartY,
       endX,

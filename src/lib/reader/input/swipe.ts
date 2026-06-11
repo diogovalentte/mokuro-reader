@@ -35,6 +35,7 @@ export interface SwipeContext {
 
 export function classifySwipe(ctx: SwipeContext): 'left' | 'right' | null {
   const { summary } = ctx;
+  if (summary.cancelled) return null;
   if (summary.pointerType !== 'touch') return null;
   if (ctx.wasPinch) return null;
   if (summary.durationMs >= 500) return null;

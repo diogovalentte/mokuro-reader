@@ -149,14 +149,62 @@ describe("TapDiscriminator (immediate commit — paged mode's native-click feel)
     expect(onDoubleTap).toHaveBeenCalledTimes(1);
     expect(onTap).toHaveBeenCalledTimes(3);
   });
+});
 
-  it('swallows the post-text-box dismissal tap without committing or arming', () => {
-    taps.noteTextBoxInteraction();
-    taps.tap(100, 200);
-    expect(onTap).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(50);
-    taps.tap(100, 200); // fresh FIRST tap, not a double
-    expect(onTap).toHaveBeenCalledTimes(1);
+describe('TapDiscriminator — adversarial review fixes', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('immediate: rejects distant second taps when maxDoubleTapDistancePx is set', () => {
+    const onTap = vi.fn();
+    const onDoubleTap = vi.fn();
+    const taps = new TapDiscriminator({
+      commitPolicy: 'immediate',
+      maxDoubleTapDistancePx: 40,
+      onTap,
+      onDoubleTap
+    });
+    taps.tap(100, 100);
+    vi.advanceTimersByTime(100);
+    taps.tap(600, 100); // far away — NOT a double-tap
     expect(onDoubleTap).not.toHaveBeenCalled();
+    expect(onTap).toHaveBeenCalledTimes(2);
+    // and the distant tap re-arms: a third tap near IT does double
+    vi.advanceTimersByTime(100);
+    taps.tap(610, 105);
+    expect(onDoubleTap).toHaveBeenCalledTimes(1);
+    taps.cancel();
+  });
+
+  it('immediate: the swallowed dismissal tap still arms a double-tap (post-textbox dbltap zooms)', () => {
+    const onTap = vi.fn();
+    const onDoubleTap = vi.fn();
+    const taps = new TapDiscriminator({ commitPolicy: 'immediate', onTap, onDoubleTap });
+    taps.noteTextBoxInteraction();
+    taps.tap(100, 100); // dismissal — no commit, but arms
+    expect(onTap).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(100);
+    taps.tap(105, 100);
+    expect(onTap).toHaveBeenCalledTimes(1); // second tap commits (old: click2 toggled)
+    expect(onDoubleTap).toHaveBeenCalledTimes(1); // and zooms (old: native dblclick)
+    taps.cancel();
+  });
+
+  it('deferred: the swallowed dismissal tap does NOT arm (readers parity)', () => {
+    const onTap = vi.fn();
+    const onDoubleTap = vi.fn();
+    const taps = new TapDiscriminator({ onTap, onDoubleTap });
+    taps.noteTextBoxInteraction();
+    taps.tap(100, 100); // dismissal
+    vi.advanceTimersByTime(100);
+    taps.tap(105, 100); // fresh FIRST tap
+    expect(onDoubleTap).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(300);
+    expect(onTap).toHaveBeenCalledTimes(1);
+    taps.cancel();
   });
 });

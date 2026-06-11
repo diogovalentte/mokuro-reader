@@ -5,6 +5,7 @@ function ctx(overrides: Partial<SwipeContext> = {}): SwipeContext {
   return {
     summary: {
       panned: true,
+      cancelled: false,
       startX: 500,
       startY: 400,
       endX: 500,
@@ -83,5 +84,17 @@ describe('classifySwipe', () => {
     expect(swipe(-600, 0, { canRevealRightAtStart: true })).toBe(null);
     // the opposite edge does not gate
     expect(swipe(600, 0, { canRevealRightAtStart: true })).toBe('left');
+  });
+});
+
+describe('classifySwipe — cancelled gestures', () => {
+  it('a cancelled pan never flips, however swipe-shaped it is', () => {
+    const base = ctx();
+    expect(
+      classifySwipe({
+        ...base,
+        summary: { ...base.summary, endX: base.summary.startX + 600, cancelled: true }
+      })
+    ).toBe(null);
   });
 });

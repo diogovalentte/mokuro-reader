@@ -215,13 +215,16 @@ Tracked per volume in the `volumes` store:
 - Time spent reading (tracked by Timer component)
 - Last read date and current page
 
-### Text Selection Handling
+### Reader Input Handling
 
-The reader has complex text selection logic to prevent interference with drag panning:
+All reader gesture handling (pan, pinch, tap, swipe, wheel, keyboard) goes
+through the shared modules in `src/lib/reader/input/` — see
+**`docs/INPUT-CONTRACTS.md`** for the architecture and the contracts that
+must not break. Highlights:
 
-- Pointer handlers skip pan initiation for `.textBox` targets (PagedViewport.svelte and the scroll readers), so text selection works inside boxes
-- Double-clicking text to select it does not trigger zoom (`.textBox` guard in Reader's onDoubleTap)
-- Text selection is only allowed within text boxes, not on background
+- `.textBox` is an input-routing protocol: double-tap there is the AnkiConnect capture gesture, mouse/pen drags are text selection (Yomitan/Migaku) — never pans, never zoom
+- Each surface owns its gestures via `PointerGestureTracker` config; Reader owns only keyboard + intent callbacks
+- Before starting any motion, handlers call their surface's `MotionGate` intent method instead of ad-hoc `finishNow()`/`stop()` combinations
 
 ### Modal Button Z-Index
 

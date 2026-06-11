@@ -214,7 +214,7 @@ describe('ContinuousZoomController — pinch', () => {
     expect(c.currentZoom).toBeCloseTo(2.6, 6);
     expect(c.zoomTarget).toBe(3);
     expect(settled).toHaveBeenCalledTimes(1);
-    expect(settled).toHaveBeenCalledWith(2.6);
+    expect(settled).toHaveBeenCalledWith(2.6, 'gesture');
     expect(c.isActive).toBe(false);
   });
 
@@ -238,7 +238,7 @@ describe('ContinuousZoomController — pinch', () => {
     expect(c.currentZoom).toBe(1);
     expect(c.zoomTarget).toBe(1);
     expect(settled).toHaveBeenCalledTimes(1);
-    expect(settled).toHaveBeenCalledWith(1);
+    expect(settled).toHaveBeenCalledWith(1, 'gesture');
     expect(zoomed).toHaveBeenLastCalledWith(false);
   });
 
@@ -431,7 +431,7 @@ describe('ContinuousZoomController — interruption and lifecycle', () => {
     expect(c.currentZoom).toBe(1);
     expect(world.zoom).toBe(1);
     expect(settled).toHaveBeenCalledTimes(1);
-    expect(settled).toHaveBeenCalledWith(1);
+    expect(settled).toHaveBeenCalledWith(1, 'reset');
     expect(zoomed).toHaveBeenLastCalledWith(false);
   });
 
@@ -645,7 +645,7 @@ describe('ZoomController — snapToLevel (additive)', () => {
     expect(c.zoomTarget).toBe(2.5);
     expect(world.zoom).toBe(2.5);
     expect(settled).toHaveBeenCalledTimes(1);
-    expect(settled).toHaveBeenCalledWith(2.5);
+    expect(settled).toHaveBeenCalledWith(2.5, 'reset');
     // layout placement only — no anchor-driven scroll writes
     expect(world.scrollLeft).toBe(before.left);
     expect(world.scrollTop).toBe(before.top);
@@ -682,5 +682,52 @@ describe('ZoomController — snapToLevel anchor skip (regression pin)', () => {
     expect(world.scrollLeft).toBe(before.left);
     expect(world.scrollTop).toBe(before.top);
     expect(c.currentZoom).toBe(1.5);
+  });
+});
+
+describe('ZoomController — settle reasons', () => {
+  it('reports gesture on natural animated settle', () => {
+    const world = tallPageWorld();
+    const settled = vi.fn();
+    const c = makeController(world, { settled });
+    c.toggleZoom(300, 500);
+    pump();
+    expect(settled).toHaveBeenCalledWith(2, 'gesture');
+  });
+
+  it('reports interrupt by default from finishNow', () => {
+    const world = tallPageWorld();
+    const settled = vi.fn();
+    const c = makeController(world, { settled });
+    c.toggleZoom(300, 500);
+    pump(3);
+    c.finishNow();
+    expect(settled).toHaveBeenCalledWith(2, 'interrupt');
+  });
+
+  it('reports nav when the interrupt precedes a navigation', () => {
+    const world = tallPageWorld();
+    const settled = vi.fn();
+    const c = makeController(world, { settled });
+    c.toggleZoom(300, 500);
+    pump(3);
+    c.finishNow('nav');
+    expect(settled).toHaveBeenCalledWith(2, 'nav');
+  });
+
+  it('reports nav from a pinch interrupted for navigation', () => {
+    const world = tallPageWorld();
+    const settled = vi.fn();
+    const c = makeController(world, { settled });
+    c.pinchStart([
+      { x: 400, y: 400 },
+      { x: 600, y: 400 }
+    ]);
+    c.pinchMove([
+      { x: 300, y: 400 },
+      { x: 700, y: 400 }
+    ]);
+    c.finishNow('nav');
+    expect(settled).toHaveBeenCalledWith(2, 'nav');
   });
 });

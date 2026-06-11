@@ -7,7 +7,7 @@
   import { activityTracker } from '$lib/util/activity-tracker';
   import MangaPage from './MangaPage.svelte';
   import { ScrollAnimator } from '$lib/reader/scroll-animator';
-  import { ContinuousZoomController } from '$lib/reader/zoom-controller';
+  import { ContinuousZoomController, type SettleReason } from '$lib/reader/zoom-controller';
   import { applyVerticalZoomLayout } from '$lib/reader/zoom-layout';
   import { closestPageToCenter } from '$lib/reader/page-detection';
   import { normalizeWheelDelta, wheelIntentIsZoom } from '$lib/reader/zoom-math';
@@ -81,7 +81,6 @@
   let zoomWrapperEl: HTMLDivElement | undefined = $state();
   let zoomSpacerEl: HTMLDivElement | undefined = $state();
   let isZoomed = $state(false);
-  let suppressSettleReport = false;
 
   /**
    * Widest page's scaled layout width at the current zoom mode — the zoomed
@@ -116,7 +115,7 @@
     );
   }
 
-  function handleZoomSettled(zoom: number) {
+  function handleZoomSettled(zoom: number, reason: SettleReason) {
     if (zoom <= 1 && scrollContainer) {
       // Reset the cross axis only when no scroll range legitimately remains
       // at 1× (zoomOriginal pages wider than the viewport keep theirs).
@@ -124,7 +123,9 @@
         scrollContainer.scrollLeft = 0;
       }
     }
-    if (!suppressSettleReport) reportProgress();
+    // 'nav' settles are superseded by the navigation that caused them, and
+    // 'reset' settles have stale scroll geometry the caller re-anchors next.
+    if (reason === 'gesture' || reason === 'interrupt') reportProgress();
   }
 
   const zoomController = new ContinuousZoomController({
@@ -140,30 +141,16 @@
 
   /**
    * Finish an in-flight zoom before a competing scroll intent (keyboard nav,
-   * external page change) so it acts on settled geometry. The settle report
-   * is suppressed — the navigation is about to change the page anyway —
-   * and the scroller adopts the corrected position (its state only syncs
-   * via async scroll events; without this the next scrollBy would animate
-   * from a stale position and undo the zoom's final correction).
+   * external page change) so it acts on settled geometry — the 'nav' settle
+   * reason keeps it from reporting progress the navigation supersedes. The
+   * scroller then adopts the corrected position (its state only syncs via
+   * async scroll events; without this the next scrollBy would animate from
+   * a stale position and undo the zoom's final correction).
    */
   function interruptZoomForNav() {
     if (!zoomController.isActive) return;
-    suppressSettleReport = true;
-    zoomController.finishNow();
-    suppressSettleReport = false;
+    zoomController.finishNow('nav');
     scroller?.sync();
-  }
-
-  /**
-   * Instant zoom reset with the settle report suppressed: reset() skips the
-   * anchor correction, so the scroll offset is stale zoomed-space garbage —
-   * detection would land pages ahead and corrupt progress before the caller
-   * re-anchors to the page it captured.
-   */
-  function resetZoom() {
-    suppressSettleReport = true;
-    zoomController.reset();
-    suppressSettleReport = false;
   }
 
   // When the zoom mode (Z key) or a layout-affecting setting changes, reset
@@ -178,7 +165,7 @@
     prevLayoutKey = layoutKey;
 
     const pageIdx = lastReportedPage - 1;
-    resetZoom();
+    zoomController.reset();
     tick().then(() => {
       const el = pageElements[pageIdx];
       if (el)
@@ -542,7 +529,7 @@
 
   function handleResize() {
     const pageIdx = lastReportedPage - 1;
-    resetZoom();
+    zoomController.reset();
     viewportWidth = window.innerWidth;
     viewportHeight = window.innerHeight;
     tick().then(() => {

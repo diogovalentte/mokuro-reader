@@ -155,12 +155,17 @@
   // ============================================================
   // Pointer state machine
   //
-  // - every pointer enters the map; .textBox only suppresses PAN initiation
-  // - single-finger touch never pans (reserved for Reader's swipe-to-flip)
+  // - every pointer enters the map; .textBox suppresses PAN initiation for
+  //   mouse/pen only (drag selection) — touch pans everywhere, exactly like
+  //   the old panzoom touch path, which handled single-finger touches
+  //   unconditionally (its onTouch option only gated preventDefault)
+  // - single-finger touch pan COEXISTS with Reader's swipe-to-flip: touch
+  //   events aren't retargeted by pointer capture, so the window-level swipe
+  //   handlers still see them and stay edge-gated (#186)
   // - capture is deferred until DRAG_THRESHOLD so gutter-button clicks and
   //   text-selection drags behave exactly as before
   // - two pointers always upgrade to pinch; back down to one re-baselines
-  //   as a fresh mouse/pen pan, touch returns to idle
+  //   as a fresh pan with the remaining pointer
   // ============================================================
 
   const DRAG_THRESHOLD = 5;
@@ -205,8 +210,9 @@
       return;
     }
 
-    if (e.pointerType === 'touch') return; // swipe-to-flip's domain
-    if ((e.target as HTMLElement).closest('.textBox')) return; // selection
+    // Mouse/pen on a text box is a selection drag, never a pan; touch has no
+    // drag-selection gesture and panned over text in production too.
+    if (e.pointerType !== 'touch' && (e.target as HTMLElement).closest('.textBox')) return;
     if (e.button !== 0) return;
 
     if (controller.isActive) controller.finishNow();
@@ -254,9 +260,11 @@
         controller.pinchStart(points()); // re-baseline on the new pair
       } else {
         controller.pinchEnd();
+        // The remaining pointer continues as a pan — for touch too, matching
+        // the old panzoom pinch→drag handoff.
         const rest = points()[0];
         const restId = [...activePointers.keys()][0];
-        if (rest && rest.type !== 'touch') {
+        if (rest) {
           beginPan({ pointerId: restId, clientX: rest.x, clientY: rest.y });
         }
       }

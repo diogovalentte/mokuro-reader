@@ -13,6 +13,7 @@
   } from '$lib/reader/paged-zoom-session';
   import { normalizeWheelDelta, wheelIntentIsZoom } from '$lib/reader/zoom-math';
   import { pagedZoom, type PagedZoomApi } from '$lib/reader/paged-zoom';
+  import { gestureTargetRole } from '$lib/reader/input/gesture-target';
 
   interface Props {
     /** Native pixel size of the displayed page or pair — from page data, not DOM. */
@@ -212,7 +213,7 @@
 
     // Mouse/pen on a text box is a selection drag, never a pan; touch has no
     // drag-selection gesture and panned over text in production too.
-    if (e.pointerType !== 'touch' && (e.target as HTMLElement).closest('.textBox')) return;
+    if (e.pointerType !== 'touch' && gestureTargetRole(e.target) === 'textbox') return;
     if (e.button !== 0) return;
 
     if (controller.isActive) controller.finishNow();

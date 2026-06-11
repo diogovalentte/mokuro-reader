@@ -11,6 +11,7 @@
   import { applyHorizontalAlignment, applyHorizontalZoomLayout } from '$lib/reader/zoom-layout';
   import { detectHorizontalPage, horizontalVisibilityRatio } from '$lib/reader/page-detection';
   import { normalizeWheelDelta, wheelIntentIsZoom } from '$lib/reader/zoom-math';
+  import { gestureTargetRole, keyboardShouldIgnore } from '$lib/reader/input/gesture-target';
   import { onMount, onDestroy, tick } from 'svelte';
 
   interface Props {
@@ -279,14 +280,7 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    const target = e.target as HTMLElement;
-    if (
-      target.tagName === 'INPUT' ||
-      target.tagName === 'TEXTAREA' ||
-      target.tagName === 'SELECT' ||
-      target.isContentEditable
-    )
-      return;
+    if (keyboardShouldIgnore(e.target)) return;
     if (!scrollContainer) return;
 
     // Always use navTarget — it's authoritative.
@@ -382,7 +376,7 @@
   function handlePointerDown(e: PointerEvent) {
     activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-    if ((e.target as HTMLElement).closest('.textBox')) {
+    if (gestureTargetRole(e.target) === 'textbox') {
       textBoxWasActive = true;
       return;
     }
@@ -470,7 +464,7 @@
   const DOUBLE_TAP_DELAY = 300;
 
   function handleClick(e: MouseEvent) {
-    if ((e.target as HTMLElement).closest('.textBox, button, [role="button"], a')) return;
+    if (gestureTargetRole(e.target) !== 'page') return;
     if (wasDrag) return;
 
     // First tap outside after interacting with a text box dismisses it without toggling

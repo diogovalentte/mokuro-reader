@@ -6,6 +6,7 @@
   import PagedViewport from './PagedViewport.svelte';
   import { pagedZoom } from '$lib/reader/paged-zoom';
   import { setInstantAnimations } from '$lib/reader/animator';
+  import { gestureTargetRole, keyboardShouldIgnore } from '$lib/reader/input/gesture-target';
   import { toggleFullScreen } from '$lib/util/fullscreen';
   import {
     effectiveVolumeSettings,
@@ -88,7 +89,7 @@
     pointerDownY = e.clientY;
 
     const target = e.target as HTMLElement;
-    if (target.closest('.textBox')) {
+    if (gestureTargetRole(target) === 'textbox') {
       textBoxWasActive = true;
     }
   }
@@ -97,7 +98,7 @@
     const target = e.target as HTMLElement;
 
     // Clicking on a text box — don't toggle
-    if (target.closest('.textBox')) return;
+    if (gestureTargetRole(target) === 'textbox') return;
 
     // Ignore drags/pans — only toggle on stationary clicks
     const dx = e.clientX - pointerDownX;
@@ -308,16 +309,8 @@
   }
 
   function handleShortcuts(event: KeyboardEvent & { currentTarget: EventTarget & Window }) {
-    // Ignore shortcuts when user is in a text input, editable field, text box, or UI overlay
-    const target = event.target as HTMLElement;
-    if (
-      target.tagName === 'INPUT' ||
-      target.tagName === 'TEXTAREA' ||
-      target.isContentEditable ||
-      target.closest('#settings') || // Settings drawer
-      target.closest('[data-popover]') || // Page number popover and other popovers
-      target.closest('.textBox') // OCR text boxes (even when not editable)
-    ) {
+    // Ignore shortcuts when the user is typing or inside reader UI overlays
+    if (keyboardShouldIgnore(event.target)) {
       return;
     }
 
@@ -525,8 +518,8 @@
   }
 
   function onDoubleTap(event: MouseEvent) {
-    // Double-clicking a word to select it shouldn't zoom.
-    if ((event.target as HTMLElement).closest('.textBox')) return;
+    // Double-tap on a text box is the AnkiConnect capture gesture.
+    if (gestureTargetRole(event.target) === 'textbox') return;
     $pagedZoom?.doubleTap(event.clientX, event.clientY);
   }
 

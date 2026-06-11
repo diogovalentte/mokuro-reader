@@ -13,6 +13,7 @@
   import { normalizeWheelDelta, wheelIntentIsZoom } from '$lib/reader/zoom-math';
   import { gestureTargetRole, keyboardShouldIgnore } from '$lib/reader/input/gesture-target';
   import { PointerGestureTracker } from '$lib/reader/input/pointer-tracker';
+  import { TapDiscriminator } from '$lib/reader/input/tap';
   import { onMount, onDestroy, tick } from 'svelte';
 
   interface Props {
@@ -372,7 +373,6 @@
   //   would fight the post-pinch snap animation
   // ============================================================
 
-  let textBoxWasActive = false;
   let dragScrollLeft = 0;
   let dragScrollTop = 0;
 
@@ -381,7 +381,7 @@
     capturePolicy: 'immediate',
     suppressPan: (e) => {
       if (gestureTargetRole(e.target) === 'textbox') {
-        textBoxWasActive = true;
+        taps.noteTextBoxInteraction();
         return true;
       }
       return false;
@@ -420,31 +420,18 @@
   // Overlay toggle + double-tap zoom
   // ============================================================
 
-  let lastTapTime = 0;
-  const DOUBLE_TAP_DELAY = 300;
+  const taps = new TapDiscriminator({
+    onTap: () => onOverlayToggle?.(),
+    onDoubleTap: (x, y) => {
+      scroller?.stop();
+      zoomController.toggleZoom(x, y);
+    }
+  });
 
   function handleClick(e: MouseEvent) {
     if (gestureTargetRole(e.target) !== 'page') return;
     if (tracker.wasDrag) return;
-
-    // First tap outside after interacting with a text box dismisses it without toggling
-    if (textBoxWasActive) {
-      textBoxWasActive = false;
-      return;
-    }
-
-    const now = Date.now();
-    if (now - lastTapTime < DOUBLE_TAP_DELAY) {
-      lastTapTime = 0;
-      scroller?.stop();
-      zoomController.toggleZoom(e.clientX, e.clientY);
-      return;
-    }
-    lastTapTime = now;
-    const tapTime = now;
-    setTimeout(() => {
-      if (lastTapTime === tapTime) onOverlayToggle?.();
-    }, DOUBLE_TAP_DELAY);
+    taps.tap(e.clientX, e.clientY);
   }
 
   // ============================================================
@@ -483,6 +470,7 @@
     zoomController.destroy();
     outerDiv?.removeEventListener('wheel', handleWheel);
     tracker.detach();
+    taps.cancel();
     if (settleTimer) clearTimeout(settleTimer);
   });
 </script>

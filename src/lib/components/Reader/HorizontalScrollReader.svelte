@@ -12,6 +12,7 @@
   import { detectHorizontalPage, horizontalVisibilityRatio } from '$lib/reader/page-detection';
   import { normalizeWheelDelta, wheelIntentIsZoom } from '$lib/reader/zoom-math';
   import { gestureTargetRole, keyboardShouldIgnore } from '$lib/reader/input/gesture-target';
+  import { PointerGestureTracker } from '$lib/reader/input/pointer-tracker';
   import { onMount, onDestroy, tick } from 'svelte';
 
   interface Props {
@@ -346,7 +347,7 @@
       scroller?.stop();
       // A held-button drag would keep writing absolute positions from its
       // pre-zoom baseline, fighting the correction frames.
-      isDragging = false;
+      tracker.cancelGestures();
       zoomController.wheelZoom(e);
       return;
     }
@@ -359,102 +360,63 @@
   }
 
   // ============================================================
-  // Click-drag panning
+  // Click-drag panning — classification lives in PointerGestureTracker
+  // (src/lib/reader/input/pointer-tracker.ts); this config holds only the
+  // scroll surface's policy:
+  //
+  // - capture 'immediate': the whole surface is one big drag target, so
+  //   capture on press (the old behavior) — clicks still fire normally
+  // - a press on a text box never pans, for ANY pointer type: drag there is
+  //   text selection (Yomitan/Migaku scanning)
+  // - pan writes absolute scroll positions from press-time baselines
+  //   (totals), with vertical gated on actual overflow
+  // - no pinch-survivor pan: an absolute-baseline pan starting mid-settle
+  //   would fight the post-pinch snap animation
   // ============================================================
 
-  let isDragging = false;
-  let wasDrag = false;
   let textBoxWasActive = false;
-  let dragStartX = 0;
-  let dragStartY = 0;
   let dragScrollLeft = 0;
   let dragScrollTop = 0;
-  const DRAG_THRESHOLD = 5;
 
-  let activePointers = new Map<number, { x: number; y: number }>();
-
-  function handlePointerDown(e: PointerEvent) {
-    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-    if (gestureTargetRole(e.target) === 'textbox') {
-      textBoxWasActive = true;
-      return;
-    }
-
-    if (activePointers.size >= 2) {
-      // Pinch start — also re-baselines when the pointer set changes
-      // (third finger down) so the gesture stays continuous.
-      isDragging = false;
-      wasDrag = true;
-      scroller?.stop();
-      zoomController.pinchStart([...activePointers.values()]);
-      return;
-    }
-
-    if (e.button !== 0) return;
-
-    if (zoomController.isActive) zoomController.finishNow();
-    isDragging = true;
-    wasDrag = false;
-    dragStartX = e.clientX;
-    dragStartY = e.clientY;
-    dragScrollLeft = scrollContainer?.scrollLeft ?? 0;
-    dragScrollTop = scrollContainer?.scrollTop ?? 0;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }
-
-  function handlePointerMove(e: PointerEvent) {
-    if (activePointers.has(e.pointerId)) {
-      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    }
-
-    if (activePointers.size >= 2) {
-      zoomController.pinchMove([...activePointers.values()]);
-      return;
-    }
-
-    if (!isDragging || !scrollContainer) return;
-    const dx = e.clientX - dragStartX;
-    const dy = e.clientY - dragStartY;
-
-    if (!wasDrag && dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD) {
-      wasDrag = true;
-      window.getSelection()?.removeAllRanges();
-    }
-
-    if (wasDrag) {
-      e.preventDefault();
-      scrollContainer.scrollLeft = dragScrollLeft - dx;
+  const tracker = new PointerGestureTracker({
+    getElement: () => outerDiv,
+    capturePolicy: 'immediate',
+    suppressPan: (e) => {
+      if (gestureTargetRole(e.target) === 'textbox') {
+        textBoxWasActive = true;
+        return true;
+      }
+      return false;
+    },
+    onPress: () => {
+      if (zoomController.isActive) zoomController.finishNow();
+      dragScrollLeft = scrollContainer?.scrollLeft ?? 0;
+      dragScrollTop = scrollContainer?.scrollTop ?? 0;
+    },
+    onPanMove: (_p, d) => {
+      if (!scrollContainer) return;
+      scrollContainer.scrollLeft = dragScrollLeft - d.totalDx;
       if (isZoomed || scrollContainer.scrollHeight > scrollContainer.clientHeight + 1) {
-        scrollContainer.scrollTop = dragScrollTop - dy;
+        scrollContainer.scrollTop = dragScrollTop - d.totalDy;
       }
+    },
+    onPinchStart: (pts) => {
+      scroller?.stop();
+      zoomController.pinchStart(pts);
+    },
+    onPinchMove: (pts) => zoomController.pinchMove(pts),
+    onPinchEnd: () => zoomController.pinchEnd(),
+    isPinchAlive: () => zoomController.isActive,
+    safariGestures: {
+      start: (x, y) => {
+        scroller?.stop();
+        zoomController.gestureStart(x || viewportWidth / 2, y || viewportHeight / 2);
+      },
+      change: (scale, x, y) =>
+        zoomController.gestureChange(scale, x || viewportWidth / 2, y || viewportHeight / 2),
+      end: () => zoomController.gestureEnd()
     }
-  }
-
-  function handlePointerUp(e: PointerEvent) {
-    const hadPointer = activePointers.has(e.pointerId);
-    activePointers.delete(e.pointerId);
-
-    if (hadPointer && activePointers.size >= 1 && zoomController.isActive) {
-      if (activePointers.size >= 2) {
-        // A pinch finger lifted but two remain — re-baseline on the new pair.
-        zoomController.pinchStart([...activePointers.values()]);
-      } else {
-        zoomController.pinchEnd();
-      }
-      return;
-    }
-    if (activePointers.size === 0) zoomController.pinchEnd();
-
-    if (isDragging) {
-      try {
-        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-      } catch {
-        /* ignore */
-      }
-    }
-    isDragging = false;
-  }
+  });
 
   // ============================================================
   // Overlay toggle + double-tap zoom
@@ -465,7 +427,7 @@
 
   function handleClick(e: MouseEvent) {
     if (gestureTargetRole(e.target) !== 'page') return;
-    if (wasDrag) return;
+    if (tracker.wasDrag) return;
 
     // First tap outside after interacting with a text box dismisses it without toggling
     if (textBoxWasActive) {
@@ -485,38 +447,6 @@
     setTimeout(() => {
       if (lastTapTime === tapTime) onOverlayToggle?.();
     }, DOUBLE_TAP_DELAY);
-  }
-
-  // ============================================================
-  // Safari desktop trackpad pinch (proprietary gesture events)
-  // ============================================================
-
-  interface WebKitGestureEvent extends Event {
-    scale: number;
-    clientX: number;
-    clientY: number;
-  }
-
-  function handleGestureStart(e: Event) {
-    e.preventDefault();
-    const ge = e as WebKitGestureEvent;
-    scroller?.stop();
-    zoomController.gestureStart(ge.clientX ?? viewportWidth / 2, ge.clientY ?? viewportHeight / 2);
-  }
-
-  function handleGestureChange(e: Event) {
-    e.preventDefault();
-    const ge = e as WebKitGestureEvent;
-    zoomController.gestureChange(
-      ge.scale ?? 1,
-      ge.clientX ?? viewportWidth / 2,
-      ge.clientY ?? viewportHeight / 2
-    );
-  }
-
-  function handleGestureEnd(e: Event) {
-    e.preventDefault();
-    zoomController.gestureEnd();
   }
 
   // ============================================================
@@ -549,9 +479,7 @@
       scroller = new ScrollAnimator(scrollContainer);
     }
     outerDiv?.addEventListener('wheel', handleWheel, { passive: false });
-    outerDiv?.addEventListener('gesturestart', handleGestureStart);
-    outerDiv?.addEventListener('gesturechange', handleGestureChange);
-    outerDiv?.addEventListener('gestureend', handleGestureEnd);
+    tracker.attach();
     requestAnimationFrame(() => {
       applyAlignment(1);
       // Use navigateToPage for pair centering on landscape mount
@@ -568,9 +496,7 @@
     scroller?.destroy();
     zoomController.destroy();
     outerDiv?.removeEventListener('wheel', handleWheel);
-    outerDiv?.removeEventListener('gesturestart', handleGestureStart);
-    outerDiv?.removeEventListener('gesturechange', handleGestureChange);
-    outerDiv?.removeEventListener('gestureend', handleGestureEnd);
+    tracker.detach();
     if (settleTimer) clearTimeout(settleTimer);
   });
 </script>
@@ -582,10 +508,6 @@
   class="fixed inset-0"
   style:background-color="var(--reader-bg)"
   style:touch-action="none"
-  onpointerdown={handlePointerDown}
-  onpointermove={handlePointerMove}
-  onpointerup={handlePointerUp}
-  onpointercancel={handlePointerUp}
   onclick={handleClick}
   role="none"
 >

@@ -14,6 +14,7 @@
   import { gestureTargetRole, keyboardShouldIgnore } from '$lib/reader/input/gesture-target';
   import { PointerGestureTracker } from '$lib/reader/input/pointer-tracker';
   import { TapDiscriminator } from '$lib/reader/input/tap';
+  import type { MotionGate } from '$lib/reader/input/motion-gate';
   import { onMount, onDestroy, tick } from 'svelte';
 
   interface Props {
@@ -124,19 +125,32 @@
   });
 
   /**
-   * Finish an in-flight zoom before a competing scroll intent (keyboard nav,
-   * external page change) so it acts on settled geometry — the 'nav' settle
-   * reason keeps it from reporting progress the navigation supersedes. The
-   * scroller then adopts the corrected position (its state only syncs via
-   * async scroll events; without this the next scrollBy would animate from
-   * a stale position and undo the zoom's final correction).
+   * Interrupt choke points — see MotionGate for the contract. Notable here:
+   * beforeNav resyncs the scroller because its state only updates via async
+   * scroll events; without sync() the next scrollBy would animate from a
+   * stale position and undo the zoom's final correction. It also clears
+   * navIsKeyboard: a nav that interrupted a zoom realigns, so the next
+   * scroll event must not be misread as keyboard-driven.
    */
-  function interruptZoomForNav() {
-    if (!zoomController.isActive) return;
-    zoomController.finishNow('nav');
-    scroller?.sync();
-    navIsKeyboard = false;
-  }
+  const motion: MotionGate = {
+    beforeZoom() {
+      scroller?.stop();
+      tracker.cancelPan();
+    },
+    beforeManualPan() {
+      if (zoomController.isActive) zoomController.finishNow();
+      scroller?.stop();
+    },
+    beforeAnimatedScroll() {
+      if (zoomController.isActive) zoomController.finishNow();
+    },
+    beforeNav() {
+      if (!zoomController.isActive) return;
+      zoomController.finishNow('nav');
+      scroller?.sync();
+      navIsKeyboard = false;
+    }
+  };
 
   // When the zoom mode (Z key) or a layout-affecting setting changes, reset
   // any user zoom (its measured spacer/transform are stale against the new
@@ -252,7 +266,7 @@
       onVolumeNav('prev');
       return;
     }
-    interruptZoomForNav();
+    motion.beforeNav?.();
     navTarget = pageIdx;
     navIsKeyboard = true;
     const el = pageElements[pageIdx];
@@ -301,12 +315,12 @@
         break;
       case 'ArrowUp':
         e.preventDefault();
-        interruptZoomForNav();
+        motion.beforeNav?.();
         scroller?.scrollBy(0, -viewportHeight * 0.5);
         break;
       case 'ArrowDown':
         e.preventDefault();
-        interruptZoomForNav();
+        motion.beforeNav?.();
         scroller?.scrollBy(0, viewportHeight * 0.5);
         break;
       case 'PageDown':
@@ -345,17 +359,14 @@
 
     if (wheelIntentIsZoom(modifier, $settings.swapWheelBehavior)) {
       e.preventDefault();
-      scroller?.stop();
-      // A held-button drag would keep writing absolute positions from its
-      // pre-zoom baseline, fighting the correction frames.
-      tracker.cancelGestures();
+      motion.beforeZoom();
       zoomController.wheelZoom(e);
       return;
     }
 
     // Scroll intent: convert vertical wheel to horizontal strip scroll.
     e.preventDefault();
-    if (zoomController.isActive) zoomController.finishNow();
+    motion.beforeAnimatedScroll();
     const delta = normalizeWheelDelta(e.deltaY, e.deltaMode);
     scrollContainer.scrollLeft += rtl ? -delta : delta;
   }
@@ -389,7 +400,7 @@
       return false;
     },
     onPress: () => {
-      if (zoomController.isActive) zoomController.finishNow();
+      motion.beforeManualPan();
       dragScrollLeft = scrollContainer?.scrollLeft ?? 0;
       dragScrollTop = scrollContainer?.scrollTop ?? 0;
     },
@@ -401,7 +412,7 @@
       }
     },
     onPinchStart: (pts) => {
-      scroller?.stop();
+      motion.beforeZoom();
       zoomController.pinchStart(pts);
     },
     onPinchMove: (pts) => zoomController.pinchMove(pts),
@@ -409,7 +420,7 @@
     isPinchAlive: () => zoomController.isActive,
     safariGestures: {
       start: (x, y) => {
-        scroller?.stop();
+        motion.beforeZoom();
         zoomController.gestureStart(x || viewportWidth / 2, y || viewportHeight / 2);
       },
       change: (scale, x, y) =>
@@ -425,7 +436,7 @@
   const taps = new TapDiscriminator({
     onTap: () => onOverlayToggle?.(),
     onDoubleTap: (x, y) => {
-      scroller?.stop();
+      motion.beforeZoom();
       zoomController.toggleZoom(x, y);
     }
   });

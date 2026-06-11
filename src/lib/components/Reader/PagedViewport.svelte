@@ -15,6 +15,7 @@
   import { pagedZoom, type PagedZoomApi } from '$lib/reader/paged-zoom';
   import { PointerGestureTracker } from '$lib/reader/input/pointer-tracker';
   import { gestureTargetRole } from '$lib/reader/input/gesture-target';
+  import type { MotionGate } from '$lib/reader/input/motion-gate';
 
   interface Props {
     /** Native pixel size of the displayed page or pair — from page data, not DOM. */
@@ -100,23 +101,41 @@
   // Wheel (window-level delegate — Reader routes reader-targeted events here)
   // ============================================================
 
+  /** Interrupt choke points — see MotionGate for the contract. */
+  const motion: MotionGate = {
+    beforeZoom() {
+      camera.stopPan();
+      tracker.cancelPan();
+    },
+    beforeManualPan() {
+      if (controller.isActive) controller.finishNow();
+      camera.stopPan();
+    },
+    beforeAnimatedScroll() {
+      // camera.panBy chains glides itself — only the zoom must yield.
+      if (controller.isActive) controller.finishNow();
+    }
+    // No beforeNav: page turns are owned by Reader and re-apply the base
+    // through the pageKey effect.
+  };
+
   function handleWheel(e: WheelEvent) {
     const modifier = e.ctrlKey || e.metaKey;
     if (wheelIntentIsZoom(modifier, $settings.swapWheelBehavior)) {
       e.preventDefault();
-      camera.stopPan();
+      motion.beforeZoom();
       controller.wheelZoom(e);
       return;
     }
     e.preventDefault();
-    if (controller.isActive) controller.finishNow();
+    motion.beforeAnimatedScroll();
     camera.panBy(0, -normalizeWheelDelta(e.deltaY, e.deltaMode));
   }
 
   function doubleTap(x: number, y: number) {
     const levels = pagedLevels(session.baseScale, session.fitScale);
     const target = doubleTapTarget(controller.currentZoom, levels[0]);
-    camera.stopPan();
+    motion.beforeZoom();
     // Zooming in animates the tapped content toward the CLAMPED center
     // position — aiming at the raw center fights the bounds near edges.
     controller.animateToLevel(
@@ -127,9 +146,7 @@
   }
 
   function scrollImage(direction: 'up' | 'down') {
-    // A running zoom animation owns the camera — finish it first or its
-    // per-frame corrections stomp the pan.
-    if (controller.isActive) controller.finishNow();
+    motion.beforeAnimatedScroll();
     const amount = viewportHeight * 0.75;
     camera.panBy(0, direction === 'down' ? -amount : amount);
   }
@@ -174,16 +191,13 @@
     getElement: () => wrapperEl,
     capturePolicy: 'deferred',
     suppressPan: (e) => e.pointerType !== 'touch' && gestureTargetRole(e.target) === 'textbox',
-    onPress: () => {
-      if (controller.isActive) controller.finishNow();
-      camera.stopPan();
-    },
+    onPress: () => motion.beforeManualPan(),
     onPanMove: (_p, d) => camera.adjustView(-d.dx, -d.dy),
     onPanEnd: (s) => {
       if (s.panned) camera.settle();
     },
     onPinchStart: (pts) => {
-      camera.stopPan();
+      motion.beforeZoom();
       controller.pinchStart(pts);
     },
     onPinchMove: (pts) => controller.pinchMove(pts),
@@ -196,7 +210,7 @@
     // center — indistinguishable from WebKit omitting the coordinate.
     safariGestures: {
       start: (x, y) => {
-        camera.stopPan();
+        motion.beforeZoom();
         controller.gestureStart(x || viewportWidth / 2, y || viewportHeight / 2);
       },
       change: (scale, x, y) =>

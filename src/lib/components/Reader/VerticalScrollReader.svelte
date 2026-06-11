@@ -14,6 +14,7 @@
   import { gestureTargetRole, keyboardShouldIgnore } from '$lib/reader/input/gesture-target';
   import { PointerGestureTracker } from '$lib/reader/input/pointer-tracker';
   import { TapDiscriminator } from '$lib/reader/input/tap';
+  import type { MotionGate } from '$lib/reader/input/motion-gate';
   import { onMount, onDestroy, tick } from 'svelte';
 
   interface Props {
@@ -143,18 +144,29 @@
   });
 
   /**
-   * Finish an in-flight zoom before a competing scroll intent (keyboard nav,
-   * external page change) so it acts on settled geometry — the 'nav' settle
-   * reason keeps it from reporting progress the navigation supersedes. The
-   * scroller then adopts the corrected position (its state only syncs via
-   * async scroll events; without this the next scrollBy would animate from
-   * a stale position and undo the zoom's final correction).
+   * Interrupt choke points — see MotionGate for the contract. Notable here:
+   * beforeNav resyncs the scroller because its state only updates via async
+   * scroll events; without sync() the next scrollBy would animate from a
+   * stale position and undo the zoom's final correction.
    */
-  function interruptZoomForNav() {
-    if (!zoomController.isActive) return;
-    zoomController.finishNow('nav');
-    scroller?.sync();
-  }
+  const motion: MotionGate = {
+    beforeZoom() {
+      scroller?.stop();
+      tracker.cancelPan();
+    },
+    beforeManualPan() {
+      if (zoomController.isActive) zoomController.finishNow();
+      scroller?.stop();
+    },
+    beforeAnimatedScroll() {
+      if (zoomController.isActive) zoomController.finishNow();
+    },
+    beforeNav() {
+      if (!zoomController.isActive) return;
+      zoomController.finishNow('nav');
+      scroller?.sync();
+    }
+  };
 
   // When the zoom mode (Z key) or a layout-affecting setting changes, reset
   // any user zoom (its measured spacer/transform are stale against the new
@@ -263,7 +275,7 @@
       return;
     }
 
-    interruptZoomForNav();
+    motion.beforeNav?.();
     const el = pageElements[pageIdx];
     if (!el) return;
 
@@ -282,7 +294,7 @@
       case 'ArrowDown':
         e.preventDefault();
         if (shouldPanVertically) {
-          interruptZoomForNav();
+          motion.beforeNav?.();
           scroller?.scrollBy(0, viewportHeight * 0.5);
         } else {
           scrollToPageVertical(detectCurrentPage() + 1);
@@ -291,7 +303,7 @@
       case 'ArrowUp':
         e.preventDefault();
         if (shouldPanVertically) {
-          interruptZoomForNav();
+          motion.beforeNav?.();
           scroller?.scrollBy(0, -viewportHeight * 0.5);
         } else {
           scrollToPageVertical(detectCurrentPage() - 1);
@@ -299,12 +311,12 @@
         break;
       case 'ArrowLeft':
         e.preventDefault();
-        interruptZoomForNav();
+        motion.beforeNav?.();
         scroller?.scrollBy(-viewportWidth * 0.5, 0);
         break;
       case 'ArrowRight':
         e.preventDefault();
-        interruptZoomForNav();
+        motion.beforeNav?.();
         scroller?.scrollBy(viewportWidth * 0.5, 0);
         break;
       case 'PageDown':
@@ -337,10 +349,7 @@
 
     if (wheelIntentIsZoom(modifier, $settings.swapWheelBehavior)) {
       e.preventDefault();
-      scroller?.stop();
-      // A held-button drag would keep writing absolute positions from its
-      // pre-zoom baseline, fighting the correction frames.
-      tracker.cancelGestures();
+      motion.beforeZoom();
       zoomController.wheelZoom(e);
       return;
     }
@@ -349,13 +358,13 @@
       // Swap mode: modifier+wheel is the scroll intent. Scroll manually —
       // letting it fall through would trigger browser page zoom instead.
       e.preventDefault();
-      if (zoomController.isActive) zoomController.finishNow();
+      motion.beforeAnimatedScroll();
       scrollContainer.scrollTop += normalizeWheelDelta(e.deltaY, e.deltaMode);
       return;
     }
 
     // Bare wheel scrolls natively; don't let it fight an active zoom.
-    if (zoomController.isActive) zoomController.finishNow();
+    motion.beforeAnimatedScroll();
   }
 
   // ============================================================
@@ -387,7 +396,7 @@
       return false;
     },
     onPress: () => {
-      if (zoomController.isActive) zoomController.finishNow();
+      motion.beforeManualPan();
       dragScrollLeft = scrollContainer?.scrollLeft ?? 0;
       dragScrollTop = scrollContainer?.scrollTop ?? 0;
     },
@@ -399,7 +408,7 @@
       }
     },
     onPinchStart: (pts) => {
-      scroller?.stop();
+      motion.beforeZoom();
       zoomController.pinchStart(pts);
     },
     onPinchMove: (pts) => zoomController.pinchMove(pts),
@@ -407,7 +416,7 @@
     isPinchAlive: () => zoomController.isActive,
     safariGestures: {
       start: (x, y) => {
-        scroller?.stop();
+        motion.beforeZoom();
         zoomController.gestureStart(x || viewportWidth / 2, y || viewportHeight / 2);
       },
       change: (scale, x, y) =>
@@ -423,7 +432,7 @@
   const taps = new TapDiscriminator({
     onTap: () => onOverlayToggle?.(),
     onDoubleTap: (x, y) => {
-      scroller?.stop();
+      motion.beforeZoom();
       zoomController.toggleZoom(x, y);
     }
   });

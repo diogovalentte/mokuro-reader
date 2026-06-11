@@ -322,3 +322,48 @@ describe('PointerGestureTracker — onPress and Safari gestures', () => {
     expect(safari.end).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('PointerGestureTracker — cancelPan', () => {
+  it('ends an engaged pan and ignores further moves, but the release still cleans the map', () => {
+    const { tracker, element, events } = makeWorld();
+    down(element, { x: 100, y: 100 });
+    move(element, { x: 130, y: 100 });
+    expect(tracker.isPanning).toBe(true);
+
+    tracker.cancelPan();
+    expect(tracker.isPanning).toBe(false);
+    expect(events.onPanEnd).toHaveBeenCalledTimes(1);
+    expect(events.onPanEnd.mock.calls[0][0].panned).toBe(true);
+
+    move(element, { x: 200, y: 100 });
+    expect(events.onPanMove).toHaveBeenCalledTimes(1); // only the pre-cancel move
+
+    upWin({ x: 200, y: 100 });
+    expect(tracker.pointerCount).toBe(0);
+    expect(events.onPanEnd).toHaveBeenCalledTimes(1); // no double end
+  });
+
+  it('drops pan candidacy of a pressed-but-unengaged pointer without firing onPanEnd', () => {
+    const { tracker, element, events } = makeWorld();
+    down(element, { x: 100, y: 100 });
+
+    tracker.cancelPan();
+    move(element, { x: 200, y: 100 });
+    expect(events.onPanStart).not.toHaveBeenCalled();
+    expect(events.onPanEnd).not.toHaveBeenCalled();
+  });
+
+  it('is safe to call from onPinchStart — the pinch stays alive', () => {
+    let world: ReturnType<typeof makeWorld>;
+    world = makeWorld({
+      onPinchStart: () => world.tracker.cancelPan()
+    });
+    const { tracker, element, events } = world;
+    down(element, { x: 100, y: 100 });
+    down(element, { id: 2, x: 300, y: 100 });
+    expect(tracker.isPinching).toBe(true);
+
+    move(element, { id: 2, x: 320, y: 100 });
+    expect(events.onPinchMove).toHaveBeenCalledTimes(1);
+  });
+});

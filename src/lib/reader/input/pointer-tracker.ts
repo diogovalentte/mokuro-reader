@@ -192,11 +192,15 @@ export class PointerGestureTracker {
     this.attached = false;
   }
 
-  /** Force-end any gesture (e.g. before a programmatic content swap). */
-  cancelGestures(): void {
+  /**
+   * Force-end any pan (engaged or candidate) — e.g. a wheel zoom starting
+   * while a drag is held, whose absolute baselines would fight the zoom's
+   * correction frames. Never touches pinch state, so it is safe to call
+   * from onPinchStart (where the tracker is mid-upgrade).
+   */
+  cancelPan(): void {
     if (this.panEngaged) this.finishPan(this.panLastX, this.panLastY);
     this.resetPan();
-    this.pinching = false;
   }
 
   private onDown = (evt: Event): void => {

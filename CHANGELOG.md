@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.7.1] - 2026-06-10
+
+### Fixed
+
+- Restore single-finger touch panning in paged mode (#227)
+
 ## [1.7.0] - 2026-06-10
 
 ### Added

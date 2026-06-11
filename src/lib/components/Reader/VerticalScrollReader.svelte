@@ -12,7 +12,8 @@
   import { closestPageToCenter } from '$lib/reader/page-detection';
   import { normalizeWheelDelta, wheelIntentIsZoom } from '$lib/reader/zoom-math';
   import { gestureTargetRole, keyboardShouldIgnore } from '$lib/reader/input/gesture-target';
-  import { PointerGestureTracker } from '$lib/reader/input/pointer-tracker';
+  import { volumeEdgeNav } from '$lib/reader/page-nav';
+  import { PointerGestureTracker, zoomGestureConfig } from '$lib/reader/input/pointer-tracker';
   import { TapDiscriminator } from '$lib/reader/input/tap';
   import type { MotionGate } from '$lib/reader/input/motion-gate';
   import { onMount, onDestroy, tick } from 'svelte';
@@ -181,14 +182,7 @@
 
     const pageIdx = lastReportedPage - 1;
     zoomController.reset();
-    tick().then(() => {
-      const el = pageElements[pageIdx];
-      if (el)
-        el.scrollIntoView({
-          behavior: 'instant',
-          block: pageFitsVertically(pageIdx) ? 'center' : 'start'
-        });
-    });
+    tick().then(() => reanchorToPage(pageIdx));
   });
 
   // ============================================================
@@ -259,21 +253,20 @@
     return el.getBoundingClientRect().height <= viewportHeight * 1.05;
   }
 
+  /** Instant re-anchor after a layout reset (zoom-mode change, resize). */
+  function reanchorToPage(pageIdx: number) {
+    const el = pageElements[pageIdx];
+    if (el)
+      el.scrollIntoView({
+        behavior: 'instant',
+        block: pageFitsVertically(pageIdx) ? 'center' : 'start'
+      });
+  }
+
   function scrollToPageVertical(pageIdx: number) {
     if (!scroller) return;
 
-    // Past the end — mark complete and exit
-    if (pageIdx >= pages.length) {
-      const { charCount } = getCharCount(pages, pages.length);
-      onPageChange(pages.length, charCount, true);
-      onVolumeNav('next');
-      return;
-    }
-    // Before the start — exit
-    if (pageIdx < 0) {
-      onVolumeNav('prev');
-      return;
-    }
+    if (volumeEdgeNav(pageIdx, pages, onPageChange, onVolumeNav)) return;
 
     motion.beforeNav?.();
     const el = pageElements[pageIdx];
@@ -407,22 +400,11 @@
         scrollContainer.scrollLeft = dragScrollLeft - d.totalDx;
       }
     },
-    onPinchStart: (pts) => {
-      motion.beforeZoom();
-      zoomController.pinchStart(pts);
-    },
-    onPinchMove: (pts) => zoomController.pinchMove(pts),
-    onPinchEnd: () => zoomController.pinchEnd(),
-    isPinchAlive: () => zoomController.isActive,
-    safariGestures: {
-      start: (x, y) => {
-        motion.beforeZoom();
-        zoomController.gestureStart(x || viewportWidth / 2, y || viewportHeight / 2);
-      },
-      change: (scale, x, y) =>
-        zoomController.gestureChange(scale, x || viewportWidth / 2, y || viewportHeight / 2),
-      end: () => zoomController.gestureEnd()
-    }
+    ...zoomGestureConfig({
+      beforeZoom: () => motion.beforeZoom(),
+      controller: zoomController,
+      getViewport: () => ({ width: viewportWidth, height: viewportHeight })
+    })
   });
 
   // ============================================================
@@ -452,14 +434,7 @@
     zoomController.reset();
     viewportWidth = window.innerWidth;
     viewportHeight = window.innerHeight;
-    tick().then(() => {
-      const el = pageElements[pageIdx];
-      if (el)
-        el.scrollIntoView({
-          behavior: 'instant',
-          block: pageFitsVertically(pageIdx) ? 'center' : 'start'
-        });
-    });
+    tick().then(() => reanchorToPage(pageIdx));
   }
 
   onMount(() => {
@@ -546,13 +521,3 @@
     </div>
   </div>
 </div>
-
-<style>
-  .scrollbar-hide {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-  .scrollbar-hide::-webkit-scrollbar {
-    display: none;
-  }
-</style>

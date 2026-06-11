@@ -15,6 +15,31 @@
 import type { Page } from '$lib/types';
 import type { PageViewMode } from '$lib/settings';
 import { isWideSpread, shouldShowSinglePage } from './page-mode-detection';
+import { getCharCount } from '$lib/util/count-chars';
+
+/**
+ * Scroll readers' volume-boundary handling: navigating past either end
+ * exits to the adjacent volume (marking the current one complete when
+ * leaving forward). Returns true when the navigation was consumed.
+ */
+export function volumeEdgeNav(
+  pageIdx: number,
+  pages: Page[],
+  onPageChange: (page: number, charCount: number, isComplete: boolean) => void,
+  onVolumeNav: (direction: 'prev' | 'next') => void
+): boolean {
+  if (pageIdx >= pages.length) {
+    const { charCount } = getCharCount(pages, pages.length);
+    onPageChange(pages.length, charCount, true);
+    onVolumeNav('next');
+    return true;
+  }
+  if (pageIdx < 0) {
+    onVolumeNav('prev');
+    return true;
+  }
+  return false;
+}
 
 export interface PageNavContext {
   pages: Page[];

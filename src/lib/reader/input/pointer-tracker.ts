@@ -29,6 +29,9 @@
  * cross-axis gating).
  */
 
+/** Movement (px) before a press becomes a pan. */
+const DRAG_THRESHOLD = 5;
+
 export interface TrackedPointer {
   id: number;
   x: number;
@@ -74,15 +77,11 @@ export interface PointerTrackerConfig {
   getElement(): HTMLElement | null | undefined;
   /** See module doc — 'deferred' until threshold, or 'immediate' on press. */
   capturePolicy: 'deferred' | 'immediate';
-  /** Movement (px) before a press becomes a pan. */
-  dragThreshold?: number;
   /**
    * Veto PAN initiation for this press (e.g. mouse/pen on a text box keeps
    * drag selection). The pointer still joins the map and can pinch.
    */
   suppressPan?(e: PointerEvent): boolean;
-  /** Clear any text selection when a pan engages (all surfaces do). */
-  clearSelectionOnPan?: boolean;
 
   /**
    * A pan-eligible press registered (primary button, not suppressed) —
@@ -90,7 +89,6 @@ export interface PointerTrackerConfig {
    * capture scroll baselines here.
    */
   onPress?(p: TrackedPointer, e: PointerEvent): void;
-  onPanStart?(p: TrackedPointer, e: PointerEvent): void;
   onPanMove?(p: TrackedPointer, deltas: PanDeltas, e: PointerEvent): void;
   onPanEnd?(summary: PanSummary): void;
 
@@ -281,7 +279,7 @@ export class PointerGestureTracker {
       // click must not toggle overlays or consume the dismissal swallow.
       if (!this.dragSinceLastPress && this.pointers.size === 1) {
         const drift = Math.hypot(e.clientX - tracked.pressX, e.clientY - tracked.pressY);
-        if (drift > (this.config.dragThreshold ?? 5)) this.dragSinceLastPress = true;
+        if (drift > DRAG_THRESHOLD) this.dragSinceLastPress = true;
       }
       return;
     }
@@ -291,15 +289,12 @@ export class PointerGestureTracker {
 
     if (!this.panEngaged) {
       const fromStart = Math.hypot(e.clientX - this.panStartX, e.clientY - this.panStartY);
-      const threshold = this.config.dragThreshold ?? 5;
-      if (fromStart <= threshold) return;
+      if (fromStart <= DRAG_THRESHOLD) return;
       this.panEngaged = true;
       this.dragSinceLastPress = true;
-      if (this.config.clearSelectionOnPan ?? true) {
-        window.getSelection()?.removeAllRanges();
-      }
+      // A drag is never also a text selection — clear any partial one.
+      window.getSelection()?.removeAllRanges();
       if (this.config.capturePolicy === 'deferred') this.capture(e.pointerId);
-      this.config.onPanStart?.(tracked, e);
     }
 
     this.panLastX = e.clientX;
@@ -431,5 +426,55 @@ export class PointerGestureTracker {
   private onGestureEnd = (e: Event): void => {
     e.preventDefault();
     this.config.safariGestures?.end();
+  };
+}
+
+/**
+ * The standard wiring from tracker pinches (and Safari trackpad gestures)
+ * into a zoom controller — identical across all three reading surfaces, so
+ * it lives here once. The `x || width/2` fallback recenters gestures whose
+ * coordinates WebKit omitted (reported as 0).
+ */
+export function zoomGestureConfig(deps: {
+  beforeZoom(): void;
+  controller: {
+    readonly isActive: boolean;
+    pinchStart(points: { x: number; y: number }[]): void;
+    pinchMove(points: { x: number; y: number }[]): void;
+    pinchEnd(): void;
+    gestureStart(x: number, y: number): void;
+    gestureChange(scale: number, x: number, y: number): void;
+    gestureEnd(): void;
+  };
+  getViewport(): { width: number; height: number };
+}): Pick<
+  PointerTrackerConfig,
+  'onPinchStart' | 'onPinchMove' | 'onPinchEnd' | 'isPinchAlive' | 'safariGestures'
+> {
+  const { controller } = deps;
+  return {
+    onPinchStart: (pts) => {
+      deps.beforeZoom();
+      controller.pinchStart(pts);
+    },
+    onPinchMove: (pts) => controller.pinchMove(pts),
+    onPinchEnd: () => controller.pinchEnd(),
+    isPinchAlive: () => controller.isActive,
+    safariGestures: {
+      start: (x, y) => {
+        deps.beforeZoom();
+        controller.gestureStart(
+          x || deps.getViewport().width / 2,
+          y || deps.getViewport().height / 2
+        );
+      },
+      change: (scale, x, y) =>
+        controller.gestureChange(
+          scale,
+          x || deps.getViewport().width / 2,
+          y || deps.getViewport().height / 2
+        ),
+      end: () => controller.gestureEnd()
+    }
   };
 }

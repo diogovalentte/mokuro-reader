@@ -24,11 +24,12 @@
  * text box; the next tap is swallowed.
  */
 
+/** The double-tap window — shared by both commit policies. */
+const DOUBLE_TAP_DELAY_MS = 300;
+
 export interface TapDiscriminatorConfig {
   /** See module doc. Default 'deferred'. */
   commitPolicy?: 'deferred' | 'immediate';
-  /** Double-tap window in ms. */
-  doubleTapDelayMs?: number;
   /**
    * Two taps further apart than this are two singles, not a double —
    * restores the proximity gate native dblclick gave paged mode. Default:
@@ -73,7 +74,7 @@ export class TapDiscriminator {
       return;
     }
 
-    const delay = this.config.doubleTapDelayMs ?? 300;
+    const delay = DOUBLE_TAP_DELAY_MS;
     const maxDist = this.config.maxDoubleTapDistancePx ?? Infinity;
     const now = performance.now();
     const isSecondTap =

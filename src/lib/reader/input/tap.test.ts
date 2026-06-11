@@ -87,17 +87,6 @@ describe('TapDiscriminator (deferred commit — scroll readers)', () => {
     vi.advanceTimersByTime(1000);
     expect(onTap).not.toHaveBeenCalled();
   });
-
-  it('respects a custom window', () => {
-    const fast = new TapDiscriminator({ onTap, onDoubleTap, doubleTapDelayMs: 100 });
-    fast.tap(0, 0);
-    vi.advanceTimersByTime(150);
-    fast.tap(0, 0);
-    expect(onDoubleTap).not.toHaveBeenCalled(); // 150ms > 100ms window
-    vi.advanceTimersByTime(100);
-    expect(onTap).toHaveBeenCalledTimes(2);
-    fast.cancel();
-  });
 });
 
 describe("TapDiscriminator (immediate commit — paged mode's native-click feel)", () => {

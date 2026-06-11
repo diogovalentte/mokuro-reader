@@ -38,7 +38,7 @@ const SNAP_TO_ONE_BELOW = 1.05;
 /** Double-tap zoom-in target level. */
 const DOUBLE_TAP_ZOOM = 2;
 
-export const CONTINUOUS_ZOOM_LEVELS: readonly number[] = [1, 1.5, 2, 3];
+const CONTINUOUS_ZOOM_LEVELS: readonly number[] = [1, 1.5, 2, 3];
 
 /** Structural subset of HTMLElement the controller scrolls. */
 export interface ZoomContainer {
@@ -213,7 +213,11 @@ export class ContinuousZoomController {
     this.stepTo(next, { x: e.clientX, y: e.clientY });
   }
 
-  /** Step one level in `direction`, anchored at (x, y) or the viewport center. */
+  /**
+   * Step one level in `direction`, anchored at (x, y) or the viewport
+   * center. No production caller — this is the test seam (unit + e2e
+   * geometry suites) for stepping levels without the wheel accumulator.
+   */
   cycleZoom(direction: 1 | -1, anchorX?: number, anchorY?: number): void {
     const viewport = this.config.getViewport();
     const anchor = {
@@ -463,4 +467,3 @@ export class ContinuousZoomController {
  * drives paged mode too. The original export name remains for existing
  * callers.
  */
-export { ContinuousZoomController as ZoomController };

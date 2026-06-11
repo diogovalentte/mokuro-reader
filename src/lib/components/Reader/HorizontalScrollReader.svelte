@@ -12,7 +12,8 @@
   import { detectHorizontalPage, horizontalVisibilityRatio } from '$lib/reader/page-detection';
   import { normalizeWheelDelta, wheelIntentIsZoom } from '$lib/reader/zoom-math';
   import { gestureTargetRole, keyboardShouldIgnore } from '$lib/reader/input/gesture-target';
-  import { PointerGestureTracker } from '$lib/reader/input/pointer-tracker';
+  import { volumeEdgeNav } from '$lib/reader/page-nav';
+  import { PointerGestureTracker, zoomGestureConfig } from '$lib/reader/input/pointer-tracker';
   import { TapDiscriminator } from '$lib/reader/input/tap';
   import type { MotionGate } from '$lib/reader/input/motion-gate';
   import { onMount, onDestroy, tick } from 'svelte';
@@ -254,18 +255,7 @@
   function navigateToPage(pageIdx: number) {
     if (!scroller || !scrollContainer) return;
 
-    // Past the end — mark complete and exit
-    if (pageIdx >= pages.length) {
-      const { charCount } = getCharCount(pages, pages.length);
-      onPageChange(pages.length, charCount, true);
-      onVolumeNav('next');
-      return;
-    }
-    // Before the start — exit
-    if (pageIdx < 0) {
-      onVolumeNav('prev');
-      return;
-    }
+    if (volumeEdgeNav(pageIdx, pages, onPageChange, onVolumeNav)) return;
     motion.beforeNav?.();
     navTarget = pageIdx;
     navIsKeyboard = true;
@@ -411,22 +401,11 @@
         scrollContainer.scrollTop = dragScrollTop - d.totalDy;
       }
     },
-    onPinchStart: (pts) => {
-      motion.beforeZoom();
-      zoomController.pinchStart(pts);
-    },
-    onPinchMove: (pts) => zoomController.pinchMove(pts),
-    onPinchEnd: () => zoomController.pinchEnd(),
-    isPinchAlive: () => zoomController.isActive,
-    safariGestures: {
-      start: (x, y) => {
-        motion.beforeZoom();
-        zoomController.gestureStart(x || viewportWidth / 2, y || viewportHeight / 2);
-      },
-      change: (scale, x, y) =>
-        zoomController.gestureChange(scale, x || viewportWidth / 2, y || viewportHeight / 2),
-      end: () => zoomController.gestureEnd()
-    }
+    ...zoomGestureConfig({
+      beforeZoom: () => motion.beforeZoom(),
+      controller: zoomController,
+      getViewport: () => ({ width: viewportWidth, height: viewportHeight })
+    })
   });
 
   // ============================================================
@@ -572,13 +551,3 @@
     </div>
   </div>
 </div>
-
-<style>
-  .scrollbar-hide {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-  .scrollbar-hide::-webkit-scrollbar {
-    display: none;
-  }
-</style>

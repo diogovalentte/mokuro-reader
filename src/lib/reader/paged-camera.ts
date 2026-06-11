@@ -71,14 +71,6 @@ export class PagedCamera {
     return this.base.scale * this.userZoom;
   }
 
-  get currentUserZoom(): number {
-    return this.userZoom;
-  }
-
-  get baseScale(): number {
-    return this.base.scale;
-  }
-
   private scaledSize(): Size {
     const c = this.content ?? { width: 0, height: 0 };
     const s = this.effectiveScale;

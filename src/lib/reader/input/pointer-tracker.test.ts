@@ -40,7 +40,6 @@ function makeWorld(config?: Partial<PointerTrackerConfig>) {
 
   const calls: string[] = [];
   const events: any = {
-    onPanStart: vi.fn(() => calls.push('panStart')),
     onPanMove: vi.fn(() => calls.push('panMove')),
     onPanEnd: vi.fn(() => calls.push('panEnd')),
     onPinchStart: vi.fn(() => calls.push('pinchStart')),
@@ -70,7 +69,6 @@ describe('PointerGestureTracker — pan lifecycle', () => {
     expect(events.onPanMove).not.toHaveBeenCalled();
 
     move(element, { x: 110, y: 100 });
-    expect(events.onPanStart).toHaveBeenCalledTimes(1);
     expect(events.onPanMove).toHaveBeenCalledTimes(1);
     const [, deltas] = events.onPanMove.mock.calls[0];
     expect(deltas.dx).toBe(10);
@@ -129,7 +127,7 @@ describe('PointerGestureTracker — pan lifecycle', () => {
     });
     down(element, { x: 100, y: 100 });
     move(element, { x: 200, y: 100 });
-    expect(events.onPanStart).not.toHaveBeenCalled();
+    expect(events.onPanMove).not.toHaveBeenCalled();
     expect(tracker.pointerCount).toBe(1);
 
     down(element, { id: 2, x: 300, y: 100 });
@@ -140,7 +138,7 @@ describe('PointerGestureTracker — pan lifecycle', () => {
     const { tracker, element, events } = makeWorld();
     down(element, { x: 100, y: 100, button: 2 });
     move(element, { x: 200, y: 100, button: 2 });
-    expect(events.onPanStart).not.toHaveBeenCalled();
+    expect(events.onPanMove).not.toHaveBeenCalled();
     expect(tracker.pointerCount).toBe(1);
     upWin({ x: 200, y: 100, button: 2 });
     expect(tracker.pointerCount).toBe(0);
@@ -217,7 +215,7 @@ describe('PointerGestureTracker — pinch lifecycle', () => {
     // the survivor pans from its current position
     move(element, { x: 100, y: 100 });
     move(element, { x: 130, y: 100 });
-    expect(events.onPanStart).toHaveBeenCalledTimes(1);
+    expect(events.onPanMove).toHaveBeenCalled();
   });
 
   it('ignores the pinch survivor when pinchSurvivorPans is off (default)', () => {
@@ -231,7 +229,7 @@ describe('PointerGestureTracker — pinch lifecycle', () => {
     // require a fresh press after a pinch.
     move(element, { id: 2, x: 330, y: 100 });
     move(element, { id: 2, x: 360, y: 100 });
-    expect(events.onPanStart).not.toHaveBeenCalled();
+    expect(events.onPanMove).not.toHaveBeenCalled();
     expect(events.onPanMove).not.toHaveBeenCalled();
 
     upWin({ id: 2, x: 360, y: 100 });
@@ -349,7 +347,7 @@ describe('PointerGestureTracker — cancelPan', () => {
 
     tracker.cancelPan();
     move(element, { x: 200, y: 100 });
-    expect(events.onPanStart).not.toHaveBeenCalled();
+    expect(events.onPanMove).not.toHaveBeenCalled();
     expect(events.onPanEnd).not.toHaveBeenCalled();
   });
 
@@ -424,7 +422,7 @@ describe('PointerGestureTracker — adversarial review fixes', () => {
     upWin({ id: 2, x: 300, y: 100 }); // survivor = suppressed pointer
     move(element, { x: 950, y: 100 });
     move(element, { x: 900, y: 100 });
-    expect(events.onPanStart).not.toHaveBeenCalled();
+    expect(events.onPanMove).not.toHaveBeenCalled();
     upWin({ x: 900, y: 100 });
   });
 

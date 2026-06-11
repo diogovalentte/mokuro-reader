@@ -13,7 +13,7 @@
   } from '$lib/reader/paged-zoom-session';
   import { normalizeWheelDelta, wheelIntentIsZoom } from '$lib/reader/zoom-math';
   import { pagedZoom, type PagedZoomApi } from '$lib/reader/paged-zoom';
-  import { PointerGestureTracker } from '$lib/reader/input/pointer-tracker';
+  import { PointerGestureTracker, zoomGestureConfig } from '$lib/reader/input/pointer-tracker';
   import { gestureTargetRole } from '$lib/reader/input/gesture-target';
   import { TapDiscriminator } from '$lib/reader/input/tap';
   import { classifySwipe } from '$lib/reader/input/swipe';
@@ -188,8 +188,9 @@
   //   deliver natively; capture engages only once a drag crosses threshold
   // - mouse/pen on a text box is a selection drag, never a pan; touch has no
   //   drag-selection gesture, so touch pans everywhere (exactly like the old
-  //   panzoom touch path) and COEXISTS with Reader's window-level
-  //   swipe-to-flip, which stays edge-gated (#186)
+  //   panzoom touch path)
+  // - swipe-to-flip is classified HERE from pan summaries (onPanEnd below),
+  //   edge-gated via press-time camera state (#186)
   // - pan deltas are incremental — the camera accumulates them
   // - isPinchAlive lets the tracker resurrect a pinch whose controller state
   //   was cleared mid-gesture by a base re-application (rotation, page turn)
@@ -226,27 +227,14 @@
       });
       if (side) onPageFlip?.(side);
     },
-    onPinchStart: (pts) => {
-      motion.beforeZoom();
-      controller.pinchStart(pts);
-    },
-    onPinchMove: (pts) => controller.pinchMove(pts),
-    onPinchEnd: () => controller.pinchEnd(),
     // The finger remaining after a pinch keeps panning (the old panzoom
     // pinch→drag handoff) — safe here because deltas are incremental.
     pinchSurvivorPans: true,
-    isPinchAlive: () => controller.isActive,
-    // Safari desktop trackpad pinch. A gesture at exactly x=0 falls back to
-    // center — indistinguishable from WebKit omitting the coordinate.
-    safariGestures: {
-      start: (x, y) => {
-        motion.beforeZoom();
-        controller.gestureStart(x || viewportWidth / 2, y || viewportHeight / 2);
-      },
-      change: (scale, x, y) =>
-        controller.gestureChange(scale, x || viewportWidth / 2, y || viewportHeight / 2),
-      end: () => controller.gestureEnd()
-    }
+    ...zoomGestureConfig({
+      beforeZoom: () => motion.beforeZoom(),
+      controller,
+      getViewport: () => ({ width: viewportWidth, height: viewportHeight })
+    })
   });
 
   // 'immediate' reproduces the native click/click/dblclick sequence this

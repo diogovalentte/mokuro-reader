@@ -21,7 +21,7 @@
     type ContinuousZoomMode,
     type ScheduleSettingKey
   } from '$lib/settings';
-  import { clamp, debounce, fireExstaticEvent, resetScrollPosition } from '$lib/util';
+  import { clamp, fireExstaticEvent, resetScrollPosition } from '$lib/util';
   import { Input, Popover, Range, Spinner } from 'flowbite-svelte';
   import MangaPage from './MangaPage.svelte';
   import TextBoxContextMenu from './TextBoxContextMenu.svelte';
@@ -51,7 +51,7 @@
   import VerticalScrollReader from './VerticalScrollReader.svelte';
   import HorizontalScrollReader from './HorizontalScrollReader.svelte';
   import { nav, navigateBack } from '$lib/util/hash-router';
-  import { onMount, onDestroy, tick } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { activityTracker } from '$lib/util/activity-tracker';
   import { shouldShowSinglePage } from '$lib/reader/page-mode-detection';
   import { calculateForwardTarget, calculateBackwardTarget } from '$lib/reader/page-nav';

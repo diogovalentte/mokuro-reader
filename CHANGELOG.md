@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.7.2] - 2026-06-12
+
+### Fixed
+
+- WebDAV passwords with non-ASCII characters (é, kana, emoji) now sync and upload — credentials are sent UTF-8 encoded (#229)
+- Rejected credentials prompt re-login instead of silently marking the server read-only (#229)
+- Session restore keeps the server URL and username when a stored password is rejected (#229)
+
+### Added
+
+- Read-only state and permissions come from mokuro-bunko's identity endpoint when available (#229)
+
+### Changed
+
+- A username without a password now connects anonymously (#229)
+
 ## [1.7.1] - 2026-06-10
 
 ### Fixed

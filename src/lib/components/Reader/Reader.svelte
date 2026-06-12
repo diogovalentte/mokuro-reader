@@ -1014,10 +1014,12 @@
     const currentMode = $settings.zoomDefault;
     let nextMode: typeof currentMode;
 
-    // Rotate through: fitToScreen -> fitToWidth -> original -> keepZoom -> fitToScreen
+    // Rotate: fitToScreen -> fitToWidth -> fillScreen -> original -> keepZoom -> fitToScreen
     if (currentMode === 'zoomFitToScreen') {
       nextMode = 'zoomFitToWidth';
     } else if (currentMode === 'zoomFitToWidth') {
+      nextMode = 'zoomFillScreen';
+    } else if (currentMode === 'zoomFillScreen') {
       nextMode = 'zoomOriginal';
     } else if (currentMode === 'zoomOriginal') {
       nextMode = 'keepZoom';
@@ -1031,6 +1033,7 @@
     const labels = {
       zoomFitToScreen: 'Fit to Screen',
       zoomFitToWidth: 'Fit to Width',
+      zoomFillScreen: 'Fill Screen',
       zoomOriginal: 'Original Size',
       keepZoom: 'Keep Zoom'
     };

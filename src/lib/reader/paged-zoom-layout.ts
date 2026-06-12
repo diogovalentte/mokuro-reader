@@ -7,10 +7,12 @@
  * scale and the camera clamps panning so content edges never drift past the
  * viewport edges (replacing the old panzoom keepInBounds()).
  *
- * Axes where the scaled content fits inside the viewport lock to the mode's
- * ALIGNMENT RULE recomputed from the current scaled size — never to the
- * level-1 position, which would mis-place every zoomed frame where an axis
- * still fits (and, end-aligned, push content past the viewport edge).
+ * Per-axis placement: an axis where the scaled content FITS the viewport is
+ * always centered (recomputed from the current scaled size — never the
+ * level-1 position); an axis that OVERFLOWS starts at the mode's alignment
+ * rule, i.e. the reading start (top, or the RTL/LTR corner). The alignment
+ * never locks fitting axes to an edge — that welded zoomOriginal/keepZoom
+ * pages to the top corner.
  *
  * The e2e suite imports this module through the Vite dev server and drives
  * the real functions — keep it free of Svelte and component state.
@@ -37,6 +39,7 @@ export interface BaseLayout extends Translate {
 export type PagedZoomMode =
   | 'zoomFitToScreen'
   | 'zoomFitToWidth'
+  | 'zoomFillScreen'
   | 'zoomOriginal'
   | 'keepZoom'
   // Legacy persisted aliases (localStorage / synced profiles) — keepZoom.
@@ -54,15 +57,28 @@ export function alignPosition(align: Align, scaled: number, viewport: number): n
 }
 
 /**
+ * Placement of one axis: centered when the scaled content fits, at the
+ * mode's reading-start rule when it overflows.
+ */
+export function basePosition(align: Align, scaled: number, viewport: number): number {
+  if (scaled <= viewport + EDGE_EPSILON) return (viewport - scaled) / 2;
+  return alignPosition(align, scaled, viewport);
+}
+
+/**
  * The mode's fitted layout for the displayed content: base scale, the level-1
  * position, and the per-axis alignment rules that fitting axes lock to at any
  * user zoom.
  *
  * - fit-to-screen: limiting-axis fit, centered both axes
- * - fit-to-width: fill viewport width, top-aligned
- * - original: 1:1 at the reading-start corner (right in RTL), top-aligned
- * - keepZoom (+legacy aliases): fit-to-screen scale at the reading-start
- *   corner — the preserved effective scale multiplies this base across pages
+ * - fit-to-width: fill viewport width; an overflowing height starts at the top
+ * - fill-screen: fill the non-limiting axis — tall pages fit the width, wide
+ *   spreads fit the height; the overflowing axis starts at the reading corner
+ * - original: 1:1; overflowing axes start at the reading corner (right in RTL)
+ * - keepZoom (+legacy aliases): fit-to-screen base scale, reading-corner
+ *   overflow — the preserved effective scale multiplies this base across pages
+ *
+ * Alignment rules place OVERFLOWING axes only; fitting axes always center.
  *
  * Accepts arbitrary strings because zoom modes are persisted in localStorage
  * and synced profiles that may carry values from other app versions; unknown
@@ -91,6 +107,11 @@ export function baseTransform(
       alignX = 'center';
       alignY = 'start';
       break;
+    case 'zoomFillScreen':
+      scale = Math.max(viewport.width / content.width, viewport.height / content.height);
+      alignX = corner;
+      alignY = 'start';
+      break;
     case 'zoomOriginal':
       scale = 1;
       alignX = corner;
@@ -115,32 +136,33 @@ export function baseTransform(
     scale,
     alignX,
     alignY,
-    x: alignPosition(alignX, content.width * scale, viewport.width),
-    y: alignPosition(alignY, content.height * scale, viewport.height)
+    x: basePosition(alignX, content.width * scale, viewport.width),
+    y: basePosition(alignY, content.height * scale, viewport.height)
   };
 }
 
 /**
  * Clamp a translate so content edges never pass viewport edges. Axes where
- * the scaled content fits lock to their alignment position at the current
- * scaled size. Non-finite inputs collapse into bounds — a NaN write would
- * teleport the camera.
+ * the scaled content fits center at the current scaled size — they are not
+ * pannable, and centering (rather than the mode's reading-start rule) is
+ * what keeps zoomOriginal/keepZoom pages from welding to the top corner.
+ * Non-finite inputs collapse into bounds — a NaN write would teleport the
+ * camera.
  */
 export function clampTranslate(
   translate: Translate,
   scaledContent: Size,
-  viewport: Size,
-  align: { x: Align; y: Align }
+  viewport: Size
 ): Translate {
-  const clampAxis = (value: number, scaled: number, view: number, rule: Align): number => {
-    if (scaled <= view + EDGE_EPSILON) return alignPosition(rule, scaled, view);
-    const v = Number.isFinite(value) ? value : alignPosition(rule, scaled, view);
+  const clampAxis = (value: number, scaled: number, view: number): number => {
+    if (scaled <= view + EDGE_EPSILON) return (view - scaled) / 2;
+    const v = Number.isFinite(value) ? value : 0;
     return Math.max(view - scaled, Math.min(0, v));
   };
 
   return {
-    x: clampAxis(translate.x, scaledContent.width, viewport.width, align.x),
-    y: clampAxis(translate.y, scaledContent.height, viewport.height, align.y)
+    x: clampAxis(translate.x, scaledContent.width, viewport.width),
+    y: clampAxis(translate.y, scaledContent.height, viewport.height)
   };
 }
 

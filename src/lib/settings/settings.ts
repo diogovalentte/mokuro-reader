@@ -20,7 +20,12 @@ export type FontSize =
   | '48'
   | '60';
 
-export type ZoomModes = 'zoomFitToScreen' | 'zoomFitToWidth' | 'zoomOriginal' | 'keepZoom';
+export type ZoomModes =
+  | 'zoomFitToScreen'
+  | 'zoomFitToWidth'
+  | 'zoomFillScreen'
+  | 'zoomOriginal'
+  | 'keepZoom';
 
 // Continuous scroll mode only supports the basic zoom modes (no keep zoom variants)
 export type ContinuousZoomMode = 'zoomFitToScreen' | 'zoomFitToWidth' | 'zoomOriginal';

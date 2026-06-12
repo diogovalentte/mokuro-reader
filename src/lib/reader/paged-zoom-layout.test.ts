@@ -34,27 +34,39 @@ describe('baseTransform', () => {
     expect(t.alignY).toBe('start');
   });
 
-  it('original is 1:1 at the reading-start corner (RTL → right)', () => {
+  it('original is 1:1; fitting axes center, overflowing axes start at the top', () => {
+    // tall: width (700) fits the 1600 viewport → centered, never pinned to
+    // the corner; height (1000) overflows the 900 viewport → reading start.
     const t = baseTransform('zoomOriginal', tall, viewport, true);
     expect(t.scale).toBe(1);
-    expect(t.x).toBe(1600 - 700);
+    expect(t.x).toBe((1600 - 700) / 2);
     expect(t.y).toBe(0);
     expect(t.alignX).toBe('end');
     expect(t.alignY).toBe('start');
   });
 
-  it('original is 1:1 at the left corner in LTR', () => {
-    const t = baseTransform('zoomOriginal', tall, viewport, false);
-    expect(t.scale).toBe(1);
-    expect(t.x).toBe(0);
-    expect(t.alignX).toBe('start');
+  it('original: an overflowing width starts at the reading corner (RTL → right edge)', () => {
+    const wide = { width: 2400, height: 800 };
+    const rtl = baseTransform('zoomOriginal', wide, viewport, true);
+    expect(rtl.x).toBe(1600 - 2400); // right edge of the spread visible
+    const ltr = baseTransform('zoomOriginal', wide, viewport, false);
+    expect(ltr.x).toBe(0); // left edge visible
+    // height fits → centered, not pinned to the top
+    expect(rtl.y).toBe((900 - 800) / 2);
   });
 
-  it('keepZoom uses a fit-to-screen base scale at the reading-start corner', () => {
+  it('original: a page smaller than the viewport centers on both axes', () => {
+    const small = { width: 700, height: 800 };
+    const t = baseTransform('zoomOriginal', small, viewport, true);
+    expect(t.x).toBe((1600 - 700) / 2);
+    expect(t.y).toBe((900 - 800) / 2);
+  });
+
+  it('keepZoom uses a fit-to-screen base scale; fitting width centers', () => {
     const t = baseTransform('keepZoom', tall, viewport, true);
     expect(t.scale).toBeCloseTo(0.9, 6);
-    expect(t.x).toBeCloseTo(1600 - 700 * 0.9, 6);
-    expect(t.y).toBe(0);
+    expect(t.x).toBeCloseTo((1600 - 700 * 0.9) / 2, 6);
+    expect(t.y).toBe(0); // height fits exactly — center == top
   });
 
   it('treats legacy keepZoom aliases like keepZoom', () => {
@@ -63,6 +75,33 @@ describe('baseTransform', () => {
     const k = baseTransform('keepZoom', tall, viewport, true);
     expect(a).toEqual(k);
     expect(b).toEqual(k);
+  });
+
+  it('fillScreen on a tall page fills the width and overflows the height, top-aligned', () => {
+    const t = baseTransform('zoomFillScreen', tall, viewport, true);
+    expect(t.scale).toBeCloseTo(1600 / 700, 6); // max(1600/700, 900/1000)
+    expect(t.x).toBeCloseTo(0, 6); // width fills exactly
+    expect(t.y).toBe(0); // overflowing height starts at the top
+    expect(t.alignY).toBe('start');
+  });
+
+  it('fillScreen on a wide spread fills the height and overflows the width at the reading corner', () => {
+    const wide = { width: 3200, height: 900 };
+    const rtl = baseTransform('zoomFillScreen', wide, viewport, true);
+    expect(rtl.scale).toBeCloseTo(1, 6); // max(0.5, 1)
+    expect(rtl.y).toBeCloseTo(0, 6); // height fills exactly
+    expect(rtl.x).toBe(1600 - 3200); // RTL reading start — right edge visible
+    const ltr = baseTransform('zoomFillScreen', wide, viewport, false);
+    expect(ltr.x).toBe(0);
+  });
+
+  it('fillScreen matches fit-to-screen when aspects match', () => {
+    const matching = { width: 3200, height: 1800 };
+    const fill = baseTransform('zoomFillScreen', matching, viewport, true);
+    const fit = baseTransform('zoomFitToScreen', matching, viewport, true);
+    expect(fill.scale).toBeCloseTo(fit.scale, 6);
+    expect(fill.x).toBeCloseTo(fit.x, 6);
+    expect(fill.y).toBeCloseTo(fit.y, 6);
   });
 
   it('guards zero-size content', () => {
@@ -82,38 +121,30 @@ describe('alignPosition', () => {
 });
 
 describe('clampTranslate', () => {
-  const align = { x: 'center', y: 'start' } as const;
-
-  it('locks a fitting axis to the alignment recomputed from the CURRENT scaled size', () => {
+  it('centers a fitting axis at the CURRENT scaled size', () => {
     // fitToScreen tall page zoomed to 1.5x: width 1134 still fits 1600 —
     // the lock must center the *scaled* width, not reuse the level-1 position.
-    const clamped = clampTranslate({ x: -400, y: -500 }, { width: 1134, height: 1350 }, viewport, {
-      x: 'center',
-      y: 'center'
-    });
+    const clamped = clampTranslate({ x: -400, y: -500 }, { width: 1134, height: 1350 }, viewport);
     expect(clamped.x).toBeCloseTo((1600 - 1134) / 2, 6);
     expect(clamped.y).toBe(-450); // overflowing axis clamps to [900-1350, 0]
   });
 
-  it('keeps an end-aligned fitting axis flush to the edge at any zoom (RTL original)', () => {
-    // RTL zoomOriginal, 500px page at 1.5x = 750: must lock to 1600-750,
-    // keeping the right edge at the viewport edge — never past it.
-    const clamped = clampTranslate({ x: 1100, y: 0 }, { width: 750, height: 900 }, viewport, {
-      x: 'end',
-      y: 'start'
-    });
-    expect(clamped.x).toBe(1600 - 750);
-    expect(clamped.y).toBe(0);
+  it('centers fitting axes in every mode — a fitting page can never pin to an edge', () => {
+    // The old behavior locked fitting axes to the mode alignment, welding
+    // zoomOriginal/keepZoom pages to the top corner (the reported bug).
+    const clamped = clampTranslate({ x: 1100, y: 700 }, { width: 750, height: 600 }, viewport);
+    expect(clamped.x).toBe((1600 - 750) / 2);
+    expect(clamped.y).toBe((900 - 600) / 2);
   });
 
   it('clamps an overflowing axis so content edges never pass viewport edges', () => {
     const scaled = { width: 3200, height: 1800 };
-    expect(clampTranslate({ x: 50, y: 10 }, scaled, viewport, align)).toEqual({ x: 0, y: 0 });
-    expect(clampTranslate({ x: -2000, y: -1000 }, scaled, viewport, align)).toEqual({
+    expect(clampTranslate({ x: 50, y: 10 }, scaled, viewport)).toEqual({ x: 0, y: 0 });
+    expect(clampTranslate({ x: -2000, y: -1000 }, scaled, viewport)).toEqual({
       x: 1600 - 3200,
       y: 900 - 1800
     });
-    expect(clampTranslate({ x: -800, y: -400 }, scaled, viewport, align)).toEqual({
+    expect(clampTranslate({ x: -800, y: -400 }, scaled, viewport)).toEqual({
       x: -800,
       y: -400
     });
@@ -123,8 +154,7 @@ describe('clampTranslate', () => {
     const clamped = clampTranslate(
       { x: NaN, y: Infinity },
       { width: 3200, height: 1800 },
-      viewport,
-      align
+      viewport
     );
     expect(Number.isFinite(clamped.x)).toBe(true);
     expect(Number.isFinite(clamped.y)).toBe(true);

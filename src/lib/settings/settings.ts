@@ -496,8 +496,9 @@ export function migrateProfiles(profiles: Profiles): Profiles {
       };
     }
 
-    // Legacy: continuous fit-to-width was replaced by fill-screen (identical
-    // for tall pages; wide spreads now fit the height instead of shrinking).
+    // Legacy: continuous fit-to-width was replaced by fill-screen, which
+    // fills the cross axis of the scroll direction — identical in vertical
+    // mode, but correct (height-fill) when rotation lands in horizontal.
     if ((migratedProfile.continuousZoomDefault as string) === 'zoomFitToWidth') {
       migratedProfile.continuousZoomDefault = 'zoomFillScreen';
     }

@@ -71,15 +71,15 @@
         height: `${page.img_height * scale}px`
       };
     }
-    // zoomFillScreen (default; legacy persisted zoomFitToWidth lands here) —
-    // fill the non-limiting axis: tall pages fill the viewport width exactly
-    // as fit-to-width did; wide spreads fill the height and overflow
-    // horizontally (pannable, centered by mx-auto).
-    const scale = Math.max(viewportWidth / page.img_width, viewportHeight / page.img_height);
+    // zoomFillScreen (default; legacy persisted zoomFitToWidth lands here).
+    // The strip axis always overflows in continuous mode, so filling the
+    // screen means filling the CROSS axis — the width here. In horizontal
+    // mode the same setting fills the height, which is what makes it safe
+    // under "match orientation" rotation (fit-to-width was not).
     return {
-      width: `${page.img_width * scale}px`,
-      maxWidth: `${page.img_width * scale}px`,
-      height: `${page.img_height * scale}px`
+      width: '100%',
+      maxWidth: '',
+      height: 'auto'
     };
   }
 
@@ -106,10 +106,7 @@
         const scale = Math.min(viewportWidth / page.img_width, viewportHeight / page.img_height);
         width = page.img_width * scale;
       } else {
-        // zoomFillScreen
-        width =
-          page.img_width *
-          Math.max(viewportWidth / page.img_width, viewportHeight / page.img_height);
+        width = viewportWidth; // zoomFillScreen — fills the cross axis
       }
       if (width > max) max = width;
     }

@@ -346,11 +346,19 @@
     // Prevent scrollbars from appearing when in reader mode
     document.documentElement.style.overflow = 'hidden';
 
+    // The settings panel's "Offset spreads" button signals through this
+    // event (it has no access to reader internals). The old PixiJS reader
+    // was the listener; since its removal the button had dispatched into
+    // the void.
+    const onOffsetSpreads = () => offsetSpreads();
+    window.addEventListener('offset-spreads', onOffsetSpreads);
+
     return () => {
       // Stop activity tracker when component unmounts
       activityTracker.stop();
       // Restore overflow when leaving reader
       document.documentElement.style.overflow = '';
+      window.removeEventListener('offset-spreads', onOffsetSpreads);
     };
   });
 
@@ -949,13 +957,9 @@
   }
 
   function offsetSpreads() {
-    if ($settings.continuousScroll) {
-      // In continuous mode, ContinuousScrollReader handles it via custom event
-      window.dispatchEvent(new CustomEvent('offset-spreads'));
-    } else if (volume) {
-      // In paged mode, toggle hasCover to shift spread pairing
-      toggleHasCover(volume.volume_uuid);
-    }
+    // Shift spread pairing by toggling hasCover — the paged viewport and the
+    // horizontal scroll reader both derive their pairing from it.
+    if (volume) toggleHasCover(volume.volume_uuid);
     showNotification('Spreads Offset', 'offset-spreads');
   }
 

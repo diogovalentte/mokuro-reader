@@ -59,9 +59,12 @@
     if (zoomMode === 'zoomOriginal') {
       return { width: page.img_width, height: page.img_height };
     }
-    if (zoomMode === 'zoomFitToWidth') {
-      const scale = viewportWidth / page.img_width;
-      return { width: viewportWidth, height: page.img_height * scale };
+    if (zoomMode === 'zoomFillScreen' || (zoomMode as string) === 'zoomFitToWidth') {
+      // Fill the non-limiting axis (legacy fit-to-width lands here): tall
+      // pages fill the viewport width and overflow vertically; wide spreads
+      // fall back to the height fit below (max picks it).
+      const scale = Math.max(viewportWidth / page.img_width, viewportHeight / page.img_height);
+      return { width: page.img_width * scale, height: page.img_height * scale };
     }
     // zoomFitToScreen / default: fit to height
     const scale = viewportHeight / page.img_height;

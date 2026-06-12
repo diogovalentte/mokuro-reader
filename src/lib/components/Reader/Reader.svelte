@@ -976,19 +976,19 @@
     const currentMode = $settings.continuousZoomDefault;
     let nextMode: ContinuousZoomMode;
 
-    // Rotate through: fitToWidth -> fitToScreen -> original -> fitToWidth
-    if (currentMode === 'zoomFitToWidth') {
+    // Rotate through: fillScreen -> fitToScreen -> original -> fillScreen
+    if (currentMode === 'zoomFillScreen') {
       nextMode = 'zoomFitToScreen';
     } else if (currentMode === 'zoomFitToScreen') {
       nextMode = 'zoomOriginal';
     } else {
-      nextMode = 'zoomFitToWidth';
+      nextMode = 'zoomFillScreen';
     }
 
     updateSetting('continuousZoomDefault', nextMode);
 
     const labels: Record<ContinuousZoomMode, string> = {
-      zoomFitToWidth: 'Fit to Width',
+      zoomFillScreen: 'Fill Screen',
       zoomFitToScreen: 'Fit to Screen',
       zoomOriginal: 'Original Size'
     };

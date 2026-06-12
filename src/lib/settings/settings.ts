@@ -28,7 +28,7 @@ export type ZoomModes =
   | 'keepZoom';
 
 // Continuous scroll mode only supports the basic zoom modes (no keep zoom variants)
-export type ContinuousZoomMode = 'zoomFitToScreen' | 'zoomFitToWidth' | 'zoomOriginal';
+export type ContinuousZoomMode = 'zoomFitToScreen' | 'zoomFillScreen' | 'zoomOriginal';
 
 export type ScrollMode = 'vertical' | 'horizontal' | 'auto' | 'continuous';
 
@@ -494,6 +494,12 @@ export function migrateProfiles(profiles: Profiles): Profiles {
         base: 'dark',
         background: profile.backgroundColor
       };
+    }
+
+    // Legacy: continuous fit-to-width was replaced by fill-screen (identical
+    // for tall pages; wide spreads now fit the height instead of shrinking).
+    if ((migratedProfile.continuousZoomDefault as string) === 'zoomFitToWidth') {
+      migratedProfile.continuousZoomDefault = 'zoomFillScreen';
     }
 
     // Add timestamp if missing

@@ -71,11 +71,15 @@
         height: `${page.img_height * scale}px`
       };
     }
-    // zoomFitToWidth (default) — always fill viewport width, upscale if needed
+    // zoomFillScreen (default; legacy persisted zoomFitToWidth lands here) —
+    // fill the non-limiting axis: tall pages fill the viewport width exactly
+    // as fit-to-width did; wide spreads fill the height and overflow
+    // horizontally (pannable, centered by mx-auto).
+    const scale = Math.max(viewportWidth / page.img_width, viewportHeight / page.img_height);
     return {
-      width: '100%',
-      maxWidth: '',
-      height: 'auto'
+      width: `${page.img_width * scale}px`,
+      maxWidth: `${page.img_width * scale}px`,
+      height: `${page.img_height * scale}px`
     };
   }
 
@@ -102,7 +106,10 @@
         const scale = Math.min(viewportWidth / page.img_width, viewportHeight / page.img_height);
         width = page.img_width * scale;
       } else {
-        width = viewportWidth; // zoomFitToWidth
+        // zoomFillScreen
+        width =
+          page.img_width *
+          Math.max(viewportWidth / page.img_width, viewportHeight / page.img_height);
       }
       if (width > max) max = width;
     }

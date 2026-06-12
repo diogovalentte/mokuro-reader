@@ -314,13 +314,15 @@
           showNotification(newVal ? 'Dividers On' : 'Dividers Off', 'page-dividers');
         }
         return;
-      case 'KeyT':
-        updateSetting('alwaysShowOCR', !$settings.alwaysShowOCR);
+      case 'KeyT': {
+        const next = !$settings.alwaysShowOCR;
+        updateSetting('alwaysShowOCR', next);
         showNotification(
-          $settings.alwaysShowOCR ? 'Always Show OCR: Off' : 'Always Show OCR: On',
+          next ? 'Always Show OCR: On' : 'Always Show OCR: Off',
           'always-show-ocr-toggle'
         );
         return;
+      }
       case 'KeyV':
         toggleContinuousScroll();
         return;
@@ -898,11 +900,11 @@
     }, 2000);
   }
 
-  // Shared toggle for the Manual/Scheduled display filters (night, invert, B&W).
-  // When the schedule owns the filter we only notify; otherwise we flip the
-  // manual boolean. This reproduces the original inline KeyI/KeyN handlers
-  // exactly, including reading $settings right after updateSetting for the
-  // On/Off label — keep this order and pattern; do not "simplify" it.
+  // Shared toggle for the Manual/Scheduled display filters (night, invert,
+  // B&W). When the schedule owns the filter we only notify; otherwise flip
+  // the manual boolean and announce the state we just wrote. (The old code
+  // re-read $settings after updateSetting expecting a stale value — the read
+  // is synchronous, so every toast announced the OPPOSITE state.)
   function toggleScheduledFilter(
     settingKey: 'nightMode' | 'invertColors' | 'grayscale',
     scheduleKey: ScheduleSettingKey,
@@ -912,11 +914,9 @@
     if ($settings[scheduleKey].enabled) {
       showNotification(`${label} is on automatic schedule`, `${notifPrefix}-scheduled`);
     } else {
-      updateSetting(settingKey, !$settings[settingKey]);
-      showNotification(
-        $settings[settingKey] ? `${label} Off` : `${label} On`,
-        `${notifPrefix}-toggle`
-      );
+      const next = !$settings[settingKey];
+      updateSetting(settingKey, next);
+      showNotification(next ? `${label} On` : `${label} Off`, `${notifPrefix}-toggle`);
     }
   }
 

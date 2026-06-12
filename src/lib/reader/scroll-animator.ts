@@ -50,7 +50,7 @@ export class ScrollAnimator {
   }
 
   /** Animate to absolute scroll position */
-  scrollTo(x: number, y: number): void {
+  private scrollTo(x: number, y: number): void {
     this.xAnim.setTarget(x);
     this.yAnim.setTarget(y);
   }
@@ -62,11 +62,6 @@ export class ScrollAnimator {
   }
 
   /** Jump immediately with no animation */
-  snapTo(x: number, y: number): void {
-    this.xAnim.snapTo(x);
-    this.yAnim.snapTo(y);
-  }
-
   /**
    * Stop any in-flight animation, leaving the scroll position as-is.
    * Used when a zoom gesture takes over scroll control — the next manual
@@ -142,10 +137,6 @@ export class ScrollAnimator {
       this.container.scrollLeft + pairCenterX - viewCenterX,
       this.container.scrollTop + pairCenterY - viewCenterY
     );
-  }
-
-  get isAnimating(): boolean {
-    return this.xAnim.isAnimating || this.yAnim.isAnimating;
   }
 
   destroy(): void {

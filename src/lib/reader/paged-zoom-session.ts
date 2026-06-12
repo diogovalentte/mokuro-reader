@@ -72,7 +72,7 @@ export function createSessionState(): PagedZoomSessionState {
 }
 
 /** keepZoom and its legacy persisted aliases (localStorage / synced profiles). */
-export function isKeepZoomMode(mode: string): boolean {
+function isKeepZoomMode(mode: string): boolean {
   return mode === 'keepZoom' || mode === 'keepZoomStart' || mode === 'keepZoomTopCorner';
 }
 

@@ -13,6 +13,11 @@
   } from '$lib/reader/paged-zoom-session';
   import { normalizeWheelDelta, wheelIntentIsZoom } from '$lib/reader/zoom-math';
   import { pagedZoom, type PagedZoomApi } from '$lib/reader/paged-zoom';
+  import { PointerGestureTracker, zoomGestureConfig } from '$lib/reader/input/pointer-tracker';
+  import { gestureTargetRole } from '$lib/reader/input/gesture-target';
+  import { TapDiscriminator } from '$lib/reader/input/tap';
+  import { classifySwipe } from '$lib/reader/input/swipe';
+  import type { MotionGate } from '$lib/reader/input/motion-gate';
 
   interface Props {
     /** Native pixel size of the displayed page or pair — from page data, not DOM. */
@@ -24,10 +29,18 @@
      */
     pageKey: number | string;
     rtl: boolean;
+    /**
+     * An edge-gated swipe asked for the page on this VISUAL side ('left' =
+     * rightward swipe revealing the left page). RTL mapping is the
+     * caller's concern.
+     */
+    onPageFlip?: (side: 'left' | 'right') => void;
+    /** A lone tap on the page surface (not text box / chrome). */
+    onOverlayToggle?: () => void;
     children?: Snippet;
   }
 
-  let { contentSize, pageKey, rtl, children }: Props = $props();
+  let { contentSize, pageKey, rtl, onPageFlip, onOverlayToggle, children }: Props = $props();
 
   let wrapperEl: HTMLDivElement | undefined = $state();
   let viewportWidth = $state(typeof window !== 'undefined' ? window.innerWidth : 1024);
@@ -95,26 +108,45 @@
   }
 
   // ============================================================
-  // Wheel (window-level delegate — Reader routes reader-targeted events here)
+  // Wheel — attached to the wrapper (non-passive, so ctrl+wheel can
+  // preventDefault the browser page-zoom)
   // ============================================================
+
+  /** Interrupt choke points — see MotionGate for the contract. */
+  const motion: MotionGate = {
+    beforeZoom() {
+      camera.stopPan();
+      tracker.cancelPan();
+    },
+    beforeManualPan() {
+      if (controller.isActive) controller.finishNow();
+      camera.stopPan();
+    },
+    beforeAnimatedScroll() {
+      // camera.panBy chains glides itself — only the zoom must yield.
+      if (controller.isActive) controller.finishNow();
+    }
+    // No beforeNav: page turns are owned by Reader and re-apply the base
+    // through the pageKey effect.
+  };
 
   function handleWheel(e: WheelEvent) {
     const modifier = e.ctrlKey || e.metaKey;
     if (wheelIntentIsZoom(modifier, $settings.swapWheelBehavior)) {
       e.preventDefault();
-      camera.stopPan();
+      motion.beforeZoom();
       controller.wheelZoom(e);
       return;
     }
     e.preventDefault();
-    if (controller.isActive) controller.finishNow();
+    motion.beforeAnimatedScroll();
     camera.panBy(0, -normalizeWheelDelta(e.deltaY, e.deltaMode));
   }
 
   function doubleTap(x: number, y: number) {
     const levels = pagedLevels(session.baseScale, session.fitScale);
     const target = doubleTapTarget(controller.currentZoom, levels[0]);
-    camera.stopPan();
+    motion.beforeZoom();
     // Zooming in animates the tapped content toward the CLAMPED center
     // position — aiming at the raw center fights the bounds near edges.
     controller.animateToLevel(
@@ -125,9 +157,7 @@
   }
 
   function scrollImage(direction: 'up' | 'down') {
-    // A running zoom animation owns the camera — finish it first or its
-    // per-frame corrections stomp the pan.
-    if (controller.isActive) controller.finishNow();
+    motion.beforeAnimatedScroll();
     const amount = viewportHeight * 0.75;
     camera.panBy(0, direction === 'down' ? -amount : amount);
   }
@@ -145,198 +175,108 @@
   }
 
   const api: PagedZoomApi = {
-    handleWheel,
-    doubleTap,
     scrollImage,
-    edgeState: () => camera.edgeState(),
     zoomFitToScreen
   };
 
   // ============================================================
-  // Pointer state machine
+  // Pointer gestures — classification lives in PointerGestureTracker
+  // (src/lib/reader/input/pointer-tracker.ts); this config holds only the
+  // paged surface's policy:
   //
-  // - every pointer enters the map; .textBox suppresses PAN initiation for
-  //   mouse/pen only (drag selection) — touch pans everywhere, exactly like
-  //   the old panzoom touch path, which handled single-finger touches
-  //   unconditionally (its onTouch option only gated preventDefault)
-  // - single-finger touch pan COEXISTS with Reader's swipe-to-flip: touch
-  //   events aren't retargeted by pointer capture, so the window-level swipe
-  //   handlers still see them and stay edge-gated (#186)
-  // - capture is deferred until DRAG_THRESHOLD so gutter-button clicks and
-  //   text-selection drags behave exactly as before
-  // - two pointers always upgrade to pinch; back down to one re-baselines
-  //   as a fresh pan with the remaining pointer
+  // - capture 'deferred': gutter-button clicks and text-selection drags
+  //   deliver natively; capture engages only once a drag crosses threshold
+  // - mouse/pen on a text box is a selection drag, never a pan; touch has no
+  //   drag-selection gesture, so touch pans everywhere (exactly like the old
+  //   panzoom touch path)
+  // - swipe-to-flip is classified HERE from pan summaries (onPanEnd below),
+  //   edge-gated via press-time camera state (#186)
+  // - pan deltas are incremental — the camera accumulates them
+  // - isPinchAlive lets the tracker resurrect a pinch whose controller state
+  //   was cleared mid-gesture by a base re-application (rotation, page turn)
   // ============================================================
 
-  const DRAG_THRESHOLD = 5;
-  let activePointers = new Map<number, { x: number; y: number; type: string }>();
-  let panPointerId: number | null = null;
-  let panMoved = false;
-  let lastPanX = 0;
-  let lastPanY = 0;
+  // Edge state sampled at press, BEFORE the pan moves the camera — swipe
+  // classification needs to know what was hidden when the gesture began.
+  let edgeAtPress = { canRevealLeft: false, canRevealRight: false };
 
-  function points() {
-    return [...activePointers.values()];
-  }
+  const tracker = new PointerGestureTracker({
+    getElement: () => wrapperEl,
+    capturePolicy: 'deferred',
+    suppressPan: (e) => {
+      if (gestureTargetRole(e.target) !== 'textbox') return false;
+      // Any press on a text box marks the next outside tap as a dismissal.
+      taps.noteTextBoxInteraction();
+      return e.pointerType !== 'touch';
+    },
+    onPress: () => {
+      motion.beforeManualPan();
+      edgeAtPress = camera.edgeState();
+    },
+    onPanMove: (_p, d) => camera.adjustView(-d.dx, -d.dy),
+    onPanEnd: (s) => {
+      if (s.panned) camera.settle();
+      if (!$settings.mobile) return;
+      const side = classifySwipe({
+        summary: s,
+        wasPinch: tracker.wasPinch,
+        viewport: { width: viewportWidth, height: viewportHeight },
+        thresholdPercent: $settings.swipeThreshold,
+        canRevealLeftAtStart: edgeAtPress.canRevealLeft,
+        canRevealRightAtStart: edgeAtPress.canRevealRight
+      });
+      if (side) onPageFlip?.(side);
+    },
+    // The finger remaining after a pinch keeps panning (the old panzoom
+    // pinch→drag handoff) — safe here because deltas are incremental.
+    pinchSurvivorPans: true,
+    ...zoomGestureConfig({
+      beforeZoom: () => motion.beforeZoom(),
+      controller,
+      getViewport: () => ({ width: viewportWidth, height: viewportHeight })
+    })
+  });
 
-  function beginPan(e: { pointerId: number; clientX: number; clientY: number }) {
-    panPointerId = e.pointerId;
-    panMoved = false;
-    lastPanX = e.clientX;
-    lastPanY = e.clientY;
-  }
+  // 'immediate' reproduces the native click/click/dblclick sequence this
+  // surface was built on — instant overlay toggles, zoom on the second tap.
+  const taps = new TapDiscriminator({
+    commitPolicy: 'immediate',
+    // Native dblclick (which this surface used before) required the clicks
+    // to land near each other — keep that gate.
+    maxDoubleTapDistancePx: 40,
+    onTap: () => onOverlayToggle?.(),
+    onDoubleTap: (x, y) => doubleTap(x, y)
+  });
 
-  function endPan() {
-    if (panPointerId !== null && panMoved && wrapperEl) {
-      try {
-        wrapperEl.releasePointerCapture(panPointerId);
-      } catch {
-        /* ignore */
-      }
-      camera.settle();
-    }
-    panPointerId = null;
-    panMoved = false;
-  }
-
-  function handlePointerDown(e: PointerEvent) {
-    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
-
-    if (activePointers.size >= 2) {
-      // Pinch — always, even when a finger started on a text box.
-      endPan();
-      camera.stopPan();
-      controller.pinchStart(points());
-      return;
-    }
-
-    // Mouse/pen on a text box is a selection drag, never a pan; touch has no
-    // drag-selection gesture and panned over text in production too.
-    if (e.pointerType !== 'touch' && (e.target as HTMLElement).closest('.textBox')) return;
-    if (e.button !== 0) return;
-
-    if (controller.isActive) controller.finishNow();
-    camera.stopPan();
-    beginPan(e);
-  }
-
-  function handlePointerMove(e: PointerEvent) {
-    if (activePointers.has(e.pointerId)) {
-      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
-    }
-
-    if (activePointers.size >= 2) {
-      // A base re-application mid-pinch (rotation, page change) clears the
-      // controller's pinch state — re-baseline on the next move so the
-      // gesture stays alive instead of dying until fingers re-press.
-      if (!controller.isActive) controller.pinchStart(points());
-      controller.pinchMove(points());
-      return;
-    }
-
-    if (panPointerId !== e.pointerId) return;
-    const dx = e.clientX - lastPanX;
-    const dy = e.clientY - lastPanY;
-
-    if (!panMoved) {
-      const fromStart = Math.hypot(dx, dy);
-      if (fromStart <= DRAG_THRESHOLD) return;
-      panMoved = true;
-      window.getSelection()?.removeAllRanges();
-      wrapperEl?.setPointerCapture(e.pointerId);
-    }
-
-    lastPanX = e.clientX;
-    lastPanY = e.clientY;
-    camera.adjustView(-dx, -dy);
-  }
-
-  function handlePointerUp(e: PointerEvent) {
-    const had = activePointers.has(e.pointerId);
-    activePointers.delete(e.pointerId);
-
-    if (had && controller.isActive && activePointers.size >= 1) {
-      if (activePointers.size >= 2) {
-        controller.pinchStart(points()); // re-baseline on the new pair
-      } else {
-        controller.pinchEnd();
-        // The remaining pointer continues as a pan — for touch too, matching
-        // the old panzoom pinch→drag handoff.
-        const rest = points()[0];
-        const restId = [...activePointers.keys()][0];
-        if (rest) {
-          beginPan({ pointerId: restId, clientX: rest.x, clientY: rest.y });
-        }
-      }
-      return;
-    }
-    if (activePointers.size === 0) controller.pinchEnd();
-
-    if (panPointerId === e.pointerId) endPan();
-  }
-
-  // Safari desktop trackpad pinch (proprietary gesture events).
-  interface WebKitGestureEvent extends Event {
-    scale: number;
-    clientX: number;
-    clientY: number;
-  }
-
-  function handleGestureStart(e: Event) {
-    e.preventDefault();
-    const ge = e as WebKitGestureEvent;
-    camera.stopPan();
-    controller.gestureStart(ge.clientX ?? viewportWidth / 2, ge.clientY ?? viewportHeight / 2);
-  }
-
-  function handleGestureChange(e: Event) {
-    e.preventDefault();
-    const ge = e as WebKitGestureEvent;
-    controller.gestureChange(
-      ge.scale ?? 1,
-      ge.clientX ?? viewportWidth / 2,
-      ge.clientY ?? viewportHeight / 2
-    );
-  }
-
-  function handleGestureEnd(e: Event) {
-    e.preventDefault();
-    controller.gestureEnd();
+  function handleClick(e: MouseEvent) {
+    if (gestureTargetRole(e.target) !== 'page') return;
+    if (tracker.wasDrag) return;
+    taps.tap(e.clientX, e.clientY);
   }
 
   onMount(() => {
     pagedZoom.set(api);
-    wrapperEl?.addEventListener('gesturestart', handleGestureStart);
-    wrapperEl?.addEventListener('gesturechange', handleGestureChange);
-    wrapperEl?.addEventListener('gestureend', handleGestureEnd);
+    tracker.attach();
+    wrapperEl?.addEventListener('wheel', handleWheel, { passive: false });
   });
 
   onDestroy(() => {
     pagedZoom.set(undefined);
-    wrapperEl?.removeEventListener('gesturestart', handleGestureStart);
-    wrapperEl?.removeEventListener('gesturechange', handleGestureChange);
-    wrapperEl?.removeEventListener('gestureend', handleGestureEnd);
+    tracker.detach();
+    taps.cancel();
+    wrapperEl?.removeEventListener('wheel', handleWheel);
     controller.destroy();
     camera.destroy();
   });
 </script>
 
-<!-- pointerup/cancel listen on the window: an uncaptured release outside the
-     wrapper (text-selection drag ending over an overlay, right-click menus)
-     must still clean the pointer map, or the next mixed-input press would be
-     misread as a pinch with a phantom stale point. -->
-<svelte:window
-  onresize={handleResize}
-  onpointerup={handlePointerUp}
-  onpointercancel={handlePointerUp}
-/>
+<svelte:window onresize={handleResize} />
 
 <div
   bind:this={wrapperEl}
   data-mokuro-reader
   style:touch-action="none"
-  onpointerdown={handlePointerDown}
-  onpointermove={handlePointerMove}
+  onclick={handleClick}
   role="none"
 >
   {@render children?.()}

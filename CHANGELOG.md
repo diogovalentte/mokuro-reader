@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.6.2] - 2026-06-10
+## [1.7.2] - 2026-06-12
 
 ### Fixed
 
@@ -15,6 +15,31 @@
 ### Added
 
 - **mokuro-bunko identity-endpoint support** - When the server exposes `/login/api/me` (mokuro-bunko >= 0.1.4), the reader verifies credentials after connecting and derives read-only state and permissions from the server's response instead of OPTIONS/PROPFIND guessing. Generic WebDAV servers (copyparty, Nextcloud, nginx) and older mokuro-bunko versions are unaffected and keep the existing heuristics. Stored credentials keep their existing localStorage format, and sessions previously mis-flagged as read-only self-heal on the next login/restore
+
+## [1.7.1] - 2026-06-10
+
+### Fixed
+
+- Restore single-finger touch panning in paged mode (#227)
+
+## [1.7.0] - 2026-06-10
+
+### Added
+
+- Targeted zoom in continuous modes: wheel, double-tap, pinch (#195, #225)
+- Paged zoom rebuilt on the same engine — panzoom removed (#226)
+- "Disable animations (e-ink)" toggle (#226)
+
+### Changed
+
+- Paged wheel zoom animates through fit-relative steps (#226)
+- Double-tap cycles zoom in / fit contextually (#226)
+- Keep zoom preserves apparent size across pages (#226)
+- Continuous scroll no longer labeled Alpha
+
+### Removed
+
+- Vertical page transition (#226)
 
 ## [1.6.1] - 2026-06-08
 

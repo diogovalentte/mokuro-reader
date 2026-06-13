@@ -71,7 +71,11 @@
         height: `${page.img_height * scale}px`
       };
     }
-    // zoomFitToWidth (default) — always fill viewport width, upscale if needed
+    // zoomFillScreen (default; legacy persisted zoomFitToWidth lands here).
+    // The strip axis always overflows in continuous mode, so filling the
+    // screen means filling the CROSS axis — the width here. In horizontal
+    // mode the same setting fills the height, which is what makes it safe
+    // under "match orientation" rotation (fit-to-width was not).
     return {
       width: '100%',
       maxWidth: '',
@@ -102,7 +106,7 @@
         const scale = Math.min(viewportWidth / page.img_width, viewportHeight / page.img_height);
         width = page.img_width * scale;
       } else {
-        width = viewportWidth; // zoomFitToWidth
+        width = viewportWidth; // zoomFillScreen — fills the cross axis
       }
       if (width > max) max = width;
     }

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { toggleFullScreen } from '$lib/util/fullscreen';
   import { pagedZoom } from '$lib/reader/paged-zoom';
-  import { settings, volumes } from '$lib/settings';
+  import { settings, volumes, updateSetting } from '$lib/settings';
   import {
     ArrowLeftOutline,
     ArrowRightOutline,
@@ -49,7 +49,14 @@
   let open = $state(false);
 
   function handleZoom() {
-    $pagedZoom?.zoomFitToScreen();
+    if ($pagedZoom) {
+      // Paged mode: transient whole-page view (the mode setting is untouched).
+      $pagedZoom.zoomFitToScreen();
+    } else {
+      // Continuous mode has no transient equivalent — pages lay out from the
+      // mode setting, so "fit" means switching it (the Z-key path).
+      updateSetting('continuousZoomDefault', 'zoomFitToScreen');
+    }
     open = false;
   }
 

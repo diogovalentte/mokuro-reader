@@ -59,11 +59,11 @@
     if (zoomMode === 'zoomOriginal') {
       return { width: page.img_width, height: page.img_height };
     }
-    if (zoomMode === 'zoomFitToWidth') {
-      const scale = viewportWidth / page.img_width;
-      return { width: viewportWidth, height: page.img_height * scale };
-    }
-    // zoomFitToScreen / default: fit to height
+    // zoomFitToScreen, zoomFillScreen, and legacy zoomFitToWidth all fill the
+    // height here: the strip axis (width) always overflows in horizontal
+    // mode, so filling the screen means filling the CROSS axis. This is
+    // exactly the layout legacy fit-to-width users were missing when
+    // "match orientation" rotated them into horizontal mode.
     const scale = viewportHeight / page.img_height;
     return { width: page.img_width * scale, height: viewportHeight };
   }

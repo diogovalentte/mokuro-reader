@@ -314,13 +314,15 @@
           showNotification(newVal ? 'Dividers On' : 'Dividers Off', 'page-dividers');
         }
         return;
-      case 'KeyT':
-        updateSetting('alwaysShowOCR', !$settings.alwaysShowOCR);
+      case 'KeyT': {
+        const next = !$settings.alwaysShowOCR;
+        updateSetting('alwaysShowOCR', next);
         showNotification(
-          $settings.alwaysShowOCR ? 'Always Show OCR: Off' : 'Always Show OCR: On',
+          next ? 'Always Show OCR: On' : 'Always Show OCR: Off',
           'always-show-ocr-toggle'
         );
         return;
+      }
       case 'KeyV':
         toggleContinuousScroll();
         return;
@@ -346,11 +348,19 @@
     // Prevent scrollbars from appearing when in reader mode
     document.documentElement.style.overflow = 'hidden';
 
+    // The settings panel's "Offset spreads" button signals through this
+    // event (it has no access to reader internals). The old PixiJS reader
+    // was the listener; since its removal the button had dispatched into
+    // the void.
+    const onOffsetSpreads = () => offsetSpreads();
+    window.addEventListener('offset-spreads', onOffsetSpreads);
+
     return () => {
       // Stop activity tracker when component unmounts
       activityTracker.stop();
       // Restore overflow when leaving reader
       document.documentElement.style.overflow = '';
+      window.removeEventListener('offset-spreads', onOffsetSpreads);
     };
   });
 
@@ -890,11 +900,11 @@
     }, 2000);
   }
 
-  // Shared toggle for the Manual/Scheduled display filters (night, invert, B&W).
-  // When the schedule owns the filter we only notify; otherwise we flip the
-  // manual boolean. This reproduces the original inline KeyI/KeyN handlers
-  // exactly, including reading $settings right after updateSetting for the
-  // On/Off label — keep this order and pattern; do not "simplify" it.
+  // Shared toggle for the Manual/Scheduled display filters (night, invert,
+  // B&W). When the schedule owns the filter we only notify; otherwise flip
+  // the manual boolean and announce the state we just wrote. (The old code
+  // re-read $settings after updateSetting expecting a stale value — the read
+  // is synchronous, so every toast announced the OPPOSITE state.)
   function toggleScheduledFilter(
     settingKey: 'nightMode' | 'invertColors' | 'grayscale',
     scheduleKey: ScheduleSettingKey,
@@ -904,11 +914,9 @@
     if ($settings[scheduleKey].enabled) {
       showNotification(`${label} is on automatic schedule`, `${notifPrefix}-scheduled`);
     } else {
-      updateSetting(settingKey, !$settings[settingKey]);
-      showNotification(
-        $settings[settingKey] ? `${label} Off` : `${label} On`,
-        `${notifPrefix}-toggle`
-      );
+      const next = !$settings[settingKey];
+      updateSetting(settingKey, next);
+      showNotification(next ? `${label} On` : `${label} Off`, `${notifPrefix}-toggle`);
     }
   }
 
@@ -949,13 +957,9 @@
   }
 
   function offsetSpreads() {
-    if ($settings.continuousScroll) {
-      // In continuous mode, ContinuousScrollReader handles it via custom event
-      window.dispatchEvent(new CustomEvent('offset-spreads'));
-    } else if (volume) {
-      // In paged mode, toggle hasCover to shift spread pairing
-      toggleHasCover(volume.volume_uuid);
-    }
+    // Shift spread pairing by toggling hasCover — the paged viewport and the
+    // horizontal scroll reader both derive their pairing from it.
+    if (volume) toggleHasCover(volume.volume_uuid);
     showNotification('Spreads Offset', 'offset-spreads');
   }
 
@@ -972,19 +976,19 @@
     const currentMode = $settings.continuousZoomDefault;
     let nextMode: ContinuousZoomMode;
 
-    // Rotate through: fitToWidth -> fitToScreen -> original -> fitToWidth
-    if (currentMode === 'zoomFitToWidth') {
+    // Rotate through: fillScreen -> fitToScreen -> original -> fillScreen
+    if (currentMode === 'zoomFillScreen') {
       nextMode = 'zoomFitToScreen';
     } else if (currentMode === 'zoomFitToScreen') {
       nextMode = 'zoomOriginal';
     } else {
-      nextMode = 'zoomFitToWidth';
+      nextMode = 'zoomFillScreen';
     }
 
     updateSetting('continuousZoomDefault', nextMode);
 
     const labels: Record<ContinuousZoomMode, string> = {
-      zoomFitToWidth: 'Fit to Width',
+      zoomFillScreen: 'Fill Screen',
       zoomFitToScreen: 'Fit to Screen',
       zoomOriginal: 'Original Size'
     };
@@ -1014,10 +1018,12 @@
     const currentMode = $settings.zoomDefault;
     let nextMode: typeof currentMode;
 
-    // Rotate through: fitToScreen -> fitToWidth -> original -> keepZoom -> fitToScreen
+    // Rotate: fitToScreen -> fitToWidth -> fillScreen -> original -> keepZoom -> fitToScreen
     if (currentMode === 'zoomFitToScreen') {
       nextMode = 'zoomFitToWidth';
     } else if (currentMode === 'zoomFitToWidth') {
+      nextMode = 'zoomFillScreen';
+    } else if (currentMode === 'zoomFillScreen') {
       nextMode = 'zoomOriginal';
     } else if (currentMode === 'zoomOriginal') {
       nextMode = 'keepZoom';
@@ -1031,6 +1037,7 @@
     const labels = {
       zoomFitToScreen: 'Fit to Screen',
       zoomFitToWidth: 'Fit to Width',
+      zoomFillScreen: 'Fill Screen',
       zoomOriginal: 'Original Size',
       keepZoom: 'Keep Zoom'
     };

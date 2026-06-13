@@ -212,20 +212,35 @@
     onPress: () => {
       motion.beforeManualPan();
       edgeAtPress = camera.edgeState();
+      // Track the drag for an inertial fling on release.
+      camera.kineticStart();
     },
     onPanMove: (_p, d) => camera.adjustView(-d.dx, -d.dy),
     onPanEnd: (s) => {
-      if (s.panned) camera.settle();
-      if (!$settings.mobile) return;
-      const side = classifySwipe({
-        summary: s,
-        wasPinch: tracker.wasPinch,
-        viewport: { width: viewportWidth, height: viewportHeight },
-        thresholdPercent: $settings.swipeThreshold,
-        canRevealLeftAtStart: edgeAtPress.canRevealLeft,
-        canRevealRightAtStart: edgeAtPress.canRevealRight
-      });
-      if (side) onPageFlip?.(side);
+      const side =
+        $settings.mobile && !s.cancelled
+          ? classifySwipe({
+              summary: s,
+              wasPinch: tracker.wasPinch,
+              viewport: { width: viewportWidth, height: viewportHeight },
+              thresholdPercent: $settings.swipeThreshold,
+              canRevealLeftAtStart: edgeAtPress.canRevealLeft,
+              canRevealRightAtStart: edgeAtPress.canRevealRight
+            })
+          : null;
+      if (side) {
+        // The gesture flipped the page — the new page re-applies its base,
+        // so drop any momentum rather than flinging the outgoing page.
+        camera.stopPan();
+        onPageFlip?.(side);
+      } else if (s.cancelled) {
+        // OS-cancelled gesture: drop the momentum and settle in place.
+        camera.stopPan();
+        camera.settle();
+      } else {
+        // Normal release: glide with inertia (or settle if too slow).
+        camera.kineticStop();
+      }
     },
     // The finger remaining after a pinch keeps panning (the old panzoom
     // pinch→drag handoff) — safe here because deltas are incremental.

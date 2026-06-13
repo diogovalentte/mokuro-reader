@@ -1,20 +1,22 @@
 # Changelog
 
-## [1.7.2] - 2026-06-12
-
-### Fixed
-
-- WebDAV passwords with non-ASCII characters (é, kana, emoji) now sync and upload — credentials are sent UTF-8 encoded (#229)
-- Rejected credentials prompt re-login instead of silently marking the server read-only (#229)
-- Session restore keeps the server URL and username when a stored password is rejected (#229)
+## [1.7.2] - 2026-06-13
 
 ### Added
 
-- Read-only state and permissions come from mokuro-bunko's identity endpoint when available (#229)
+- "Fill screen" zoom mode: fills one axis, overflows the other (#231)
+
+### Fixed
+
+- Keep Zoom and Original Size no longer pin pages to the top (#231)
+- Offset spreads button works again (#231)
+- "Zoom to fit" now works in continuous scroll mode (#231)
+- Night mode, invert, B&W, and OCR toggles show the correct state (#231)
+- WebDAV logins no longer silently fall back to anonymous (#229)
 
 ### Changed
 
-- A username without a password now connects anonymously (#229)
+- Continuous "Fit to width" is now "Fill screen" (#231)
 
 ## [1.7.1] - 2026-06-10
 

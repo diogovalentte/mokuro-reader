@@ -141,6 +141,21 @@ export class WebDAVProvider implements SyncProvider {
 
     const { serverUrl, username, password } = credentials as WebDAVCredentials;
 
+    // The only anonymous login is a fully blank one (browse a public server).
+    // A username with no password is an incomplete credential — never a silent
+    // anonymous read-only session. (Password-only auth, e.g. copyparty, is
+    // fine: a password with no username still authenticates.)
+    if (username && !password) {
+      throw new ProviderError(
+        'Password is required',
+        'webdav',
+        'INVALID_CREDENTIALS',
+        false,
+        false,
+        'auth'
+      );
+    }
+
     // Normalize server URL (remove trailing slash)
     const normalizedUrl = serverUrl.replace(/\/$/, '');
 
@@ -378,24 +393,12 @@ export class WebDAVProvider implements SyncProvider {
     if (!shouldRestore) return;
 
     // A stored username WITHOUT a password marks a previously auth-failed
-    // session (the password was cleared). Reconnect anonymously so the library
-    // stays browsable and prompt the user to re-login.
+    // session (the password was cleared). Leave it logged out and flag for
+    // re-login — never silently reconnect anonymously, which would hide that
+    // sync has stopped. URL + username remain stored so the form pre-fills.
     if (username && !password) {
-      try {
-        await this.login({ serverUrl });
-        // login() without a username removes the stored one - restore it so
-        // the login form keeps pre-filling, then flag for re-login (login()
-        // resets needsAttention on success, so set it afterwards)
-        localStorage.setItem(STORAGE_KEYS.USERNAME, username);
-        this.setNeedsAttention();
-        console.log('Restored anonymous WebDAV session; re-login required for sync');
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.warn(
-          'Failed to restore WebDAV session (temporary error), will retry on next sync:',
-          errorMessage
-        );
-      }
+      this.setNeedsAttention();
+      console.log('WebDAV session needs re-login (stored password was cleared)');
       return;
     }
 
@@ -421,20 +424,11 @@ export class WebDAVProvider implements SyncProvider {
       if (isAuthFailure) {
         // Stale credentials: clear ONLY the password (keep server URL +
         // username, keep the provider active) so the UI prompts a re-login
-        // instead of silently dropping the whole configuration
+        // instead of silently dropping the whole configuration. Do NOT
+        // reconnect anonymously — a silent read-only fallback hides that
+        // sync has stopped; leave the session logged out and flagged.
         console.error('WebDAV credentials rejected, clearing stored password');
         localStorage.removeItem(STORAGE_KEYS.PASSWORD);
-
-        // Best-effort anonymous reconnect so the library stays browsable
-        try {
-          await this.login({ serverUrl });
-        } catch {
-          // Server may not allow anonymous browsing - ignore
-        }
-        if (username) {
-          // login() without a username removes the stored one - restore it
-          localStorage.setItem(STORAGE_KEYS.USERNAME, username);
-        }
         this.setNeedsAttention();
       } else {
         // Temporary error - keep credentials for retry later

@@ -7,10 +7,15 @@
   import { activityTracker } from '$lib/util/activity-tracker';
   import MangaPage from './MangaPage.svelte';
   import { ScrollAnimator } from '$lib/reader/scroll-animator';
-  import { ContinuousZoomController } from '$lib/reader/zoom-controller';
+  import { ContinuousZoomController, type SettleReason } from '$lib/reader/zoom-controller';
   import { applyHorizontalAlignment, applyHorizontalZoomLayout } from '$lib/reader/zoom-layout';
   import { detectHorizontalPage, horizontalVisibilityRatio } from '$lib/reader/page-detection';
   import { normalizeWheelDelta, wheelIntentIsZoom } from '$lib/reader/zoom-math';
+  import { gestureTargetRole, keyboardShouldIgnore } from '$lib/reader/input/gesture-target';
+  import { volumeEdgeNav } from '$lib/reader/page-nav';
+  import { PointerGestureTracker, zoomGestureConfig } from '$lib/reader/input/pointer-tracker';
+  import { TapDiscriminator } from '$lib/reader/input/tap';
+  import type { MotionGate } from '$lib/reader/input/motion-gate';
   import { onMount, onDestroy, tick } from 'svelte';
 
   interface Props {
@@ -54,11 +59,11 @@
     if (zoomMode === 'zoomOriginal') {
       return { width: page.img_width, height: page.img_height };
     }
-    if (zoomMode === 'zoomFitToWidth') {
-      const scale = viewportWidth / page.img_width;
-      return { width: viewportWidth, height: page.img_height * scale };
-    }
-    // zoomFitToScreen / default: fit to height
+    // zoomFitToScreen, zoomFillScreen, and legacy zoomFitToWidth all fill the
+    // height here: the strip axis (width) always overflows in horizontal
+    // mode, so filling the screen means filling the CROSS axis. This is
+    // exactly the layout legacy fit-to-width users were missing when
+    // "match orientation" rotated them into horizontal mode.
     const scale = viewportHeight / page.img_height;
     return { width: page.img_width * scale, height: viewportHeight };
   }
@@ -70,7 +75,6 @@
   let zoomWrapperEl: HTMLDivElement | undefined = $state();
   let zoomSpacerEl: HTMLDivElement | undefined = $state();
   let isZoomed = $state(false);
-  let suppressSettleReport = false;
 
   // Reader-specific zoomed layout (transform origin per direction, spacer
   // dims, measured cross-axis alignment) — shared with the e2e suite, see
@@ -92,7 +96,7 @@
     );
   }
 
-  function handleZoomSettled(zoom: number) {
+  function handleZoomSettled(zoom: number, reason: SettleReason) {
     if (zoom <= 1 && scrollContainer) {
       // Reset the cross axis only when no scroll range legitimately remains
       // at 1× (fit-to-width/original pages taller than the viewport keep it).
@@ -100,10 +104,10 @@
         scrollContainer.scrollTop = 0;
       }
     }
-    // Suppressed settles (nav interrupts, resets) are followed by their own
-    // navTarget update against restored geometry — detection here would read
-    // the shifted layout and land on a garbage page.
-    if (!suppressSettleReport) {
+    // 'nav' settles are followed by the navigation's own navTarget update,
+    // and 'reset' settles have stale scroll geometry the caller re-anchors
+    // next — detection on either would land on a garbage page.
+    if (reason === 'gesture' || reason === 'interrupt') {
       navTarget = detectCurrentPage();
       navIsKeyboard = false;
       reportProgress();
@@ -122,33 +126,32 @@
   });
 
   /**
-   * Finish an in-flight zoom before a competing scroll intent (keyboard nav,
-   * external page change) so it acts on settled geometry. The settle report
-   * is suppressed — the navigation is about to change the page anyway —
-   * and the scroller adopts the corrected position (its state only syncs
-   * via async scroll events; without this the next scrollBy would animate
-   * from a stale position and undo the zoom's final correction).
+   * Interrupt choke points — see MotionGate for the contract. Notable here:
+   * beforeNav resyncs the scroller because its state only updates via async
+   * scroll events; without sync() the next scrollBy would animate from a
+   * stale position and undo the zoom's final correction. It also clears
+   * navIsKeyboard: a nav that interrupted a zoom realigns, so the next
+   * scroll event must not be misread as keyboard-driven.
    */
-  function interruptZoomForNav() {
-    if (!zoomController.isActive) return;
-    suppressSettleReport = true;
-    zoomController.finishNow();
-    suppressSettleReport = false;
-    scroller?.sync();
-    navIsKeyboard = false;
-  }
-
-  /**
-   * Instant zoom reset with the settle report suppressed: reset() skips the
-   * anchor correction, so the scroll offset is stale zoomed-space garbage —
-   * detection would land pages ahead and corrupt progress before the caller
-   * re-anchors to the page it captured.
-   */
-  function resetZoom() {
-    suppressSettleReport = true;
-    zoomController.reset();
-    suppressSettleReport = false;
-  }
+  const motion: MotionGate = {
+    beforeZoom() {
+      scroller?.stop();
+      tracker.cancelPan();
+    },
+    beforeManualPan() {
+      if (zoomController.isActive) zoomController.finishNow();
+      scroller?.stop();
+    },
+    beforeAnimatedScroll() {
+      if (zoomController.isActive) zoomController.finishNow();
+    },
+    beforeNav() {
+      if (!zoomController.isActive) return;
+      zoomController.finishNow('nav');
+      scroller?.sync();
+      navIsKeyboard = false;
+    }
+  };
 
   // When the zoom mode (Z key) or a layout-affecting setting changes, reset
   // any user zoom (its measured spacer/transform are stale against the new
@@ -160,7 +163,7 @@
     prevLayoutKey = layoutKey;
 
     const pageIdx = lastReportedPage - 1;
-    resetZoom();
+    zoomController.reset();
     tick().then(() => {
       applyAlignment(1);
       const el = pageElements[pageIdx];
@@ -252,19 +255,8 @@
   function navigateToPage(pageIdx: number) {
     if (!scroller || !scrollContainer) return;
 
-    // Past the end — mark complete and exit
-    if (pageIdx >= pages.length) {
-      const { charCount } = getCharCount(pages, pages.length);
-      onPageChange(pages.length, charCount, true);
-      onVolumeNav('next');
-      return;
-    }
-    // Before the start — exit
-    if (pageIdx < 0) {
-      onVolumeNav('prev');
-      return;
-    }
-    interruptZoomForNav();
+    if (volumeEdgeNav(pageIdx, pages, onPageChange, onVolumeNav)) return;
+    motion.beforeNav?.();
     navTarget = pageIdx;
     navIsKeyboard = true;
     const el = pageElements[pageIdx];
@@ -294,14 +286,7 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    const target = e.target as HTMLElement;
-    if (
-      target.tagName === 'INPUT' ||
-      target.tagName === 'TEXTAREA' ||
-      target.tagName === 'SELECT' ||
-      target.isContentEditable
-    )
-      return;
+    if (keyboardShouldIgnore(e.target)) return;
     if (!scrollContainer) return;
 
     // Always use navTarget — it's authoritative.
@@ -320,12 +305,12 @@
         break;
       case 'ArrowUp':
         e.preventDefault();
-        interruptZoomForNav();
+        motion.beforeNav?.();
         scroller?.scrollBy(0, -viewportHeight * 0.5);
         break;
       case 'ArrowDown':
         e.preventDefault();
-        interruptZoomForNav();
+        motion.beforeNav?.();
         scroller?.scrollBy(0, viewportHeight * 0.5);
         break;
       case 'PageDown':
@@ -364,180 +349,81 @@
 
     if (wheelIntentIsZoom(modifier, $settings.swapWheelBehavior)) {
       e.preventDefault();
-      scroller?.stop();
-      // A held-button drag would keep writing absolute positions from its
-      // pre-zoom baseline, fighting the correction frames.
-      isDragging = false;
+      motion.beforeZoom();
       zoomController.wheelZoom(e);
       return;
     }
 
     // Scroll intent: convert vertical wheel to horizontal strip scroll.
     e.preventDefault();
-    if (zoomController.isActive) zoomController.finishNow();
+    motion.beforeAnimatedScroll();
     const delta = normalizeWheelDelta(e.deltaY, e.deltaMode);
     scrollContainer.scrollLeft += rtl ? -delta : delta;
   }
 
   // ============================================================
-  // Click-drag panning
+  // Click-drag panning — classification lives in PointerGestureTracker
+  // (src/lib/reader/input/pointer-tracker.ts); this config holds only the
+  // scroll surface's policy:
+  //
+  // - capture 'immediate': the whole surface is one big drag target, so
+  //   capture on press (the old behavior) — clicks still fire normally
+  // - a press on a text box never pans, for ANY pointer type: drag there is
+  //   text selection (Yomitan/Migaku scanning)
+  // - pan writes absolute scroll positions from press-time baselines
+  //   (totals), with vertical gated on actual overflow
+  // - no pinch-survivor pan: an absolute-baseline pan starting mid-settle
+  //   would fight the post-pinch snap animation
   // ============================================================
 
-  let isDragging = false;
-  let wasDrag = false;
-  let textBoxWasActive = false;
-  let dragStartX = 0;
-  let dragStartY = 0;
   let dragScrollLeft = 0;
   let dragScrollTop = 0;
-  const DRAG_THRESHOLD = 5;
 
-  let activePointers = new Map<number, { x: number; y: number }>();
-
-  function handlePointerDown(e: PointerEvent) {
-    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-    if ((e.target as HTMLElement).closest('.textBox')) {
-      textBoxWasActive = true;
-      return;
-    }
-
-    if (activePointers.size >= 2) {
-      // Pinch start — also re-baselines when the pointer set changes
-      // (third finger down) so the gesture stays continuous.
-      isDragging = false;
-      wasDrag = true;
-      scroller?.stop();
-      zoomController.pinchStart([...activePointers.values()]);
-      return;
-    }
-
-    if (e.button !== 0) return;
-
-    if (zoomController.isActive) zoomController.finishNow();
-    isDragging = true;
-    wasDrag = false;
-    dragStartX = e.clientX;
-    dragStartY = e.clientY;
-    dragScrollLeft = scrollContainer?.scrollLeft ?? 0;
-    dragScrollTop = scrollContainer?.scrollTop ?? 0;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }
-
-  function handlePointerMove(e: PointerEvent) {
-    if (activePointers.has(e.pointerId)) {
-      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    }
-
-    if (activePointers.size >= 2) {
-      zoomController.pinchMove([...activePointers.values()]);
-      return;
-    }
-
-    if (!isDragging || !scrollContainer) return;
-    const dx = e.clientX - dragStartX;
-    const dy = e.clientY - dragStartY;
-
-    if (!wasDrag && dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD) {
-      wasDrag = true;
-      window.getSelection()?.removeAllRanges();
-    }
-
-    if (wasDrag) {
-      e.preventDefault();
-      scrollContainer.scrollLeft = dragScrollLeft - dx;
+  const tracker = new PointerGestureTracker({
+    getElement: () => outerDiv,
+    capturePolicy: 'immediate',
+    suppressPan: (e) => {
+      if (gestureTargetRole(e.target) === 'textbox') {
+        taps.noteTextBoxInteraction();
+        return true;
+      }
+      return false;
+    },
+    onPress: () => {
+      motion.beforeManualPan();
+      dragScrollLeft = scrollContainer?.scrollLeft ?? 0;
+      dragScrollTop = scrollContainer?.scrollTop ?? 0;
+    },
+    onPanMove: (_p, d) => {
+      if (!scrollContainer) return;
+      scrollContainer.scrollLeft = dragScrollLeft - d.totalDx;
       if (isZoomed || scrollContainer.scrollHeight > scrollContainer.clientHeight + 1) {
-        scrollContainer.scrollTop = dragScrollTop - dy;
+        scrollContainer.scrollTop = dragScrollTop - d.totalDy;
       }
-    }
-  }
-
-  function handlePointerUp(e: PointerEvent) {
-    const hadPointer = activePointers.has(e.pointerId);
-    activePointers.delete(e.pointerId);
-
-    if (hadPointer && activePointers.size >= 1 && zoomController.isActive) {
-      if (activePointers.size >= 2) {
-        // A pinch finger lifted but two remain — re-baseline on the new pair.
-        zoomController.pinchStart([...activePointers.values()]);
-      } else {
-        zoomController.pinchEnd();
-      }
-      return;
-    }
-    if (activePointers.size === 0) zoomController.pinchEnd();
-
-    if (isDragging) {
-      try {
-        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-      } catch {
-        /* ignore */
-      }
-    }
-    isDragging = false;
-  }
+    },
+    ...zoomGestureConfig({
+      beforeZoom: () => motion.beforeZoom(),
+      controller: zoomController,
+      getViewport: () => ({ width: viewportWidth, height: viewportHeight })
+    })
+  });
 
   // ============================================================
   // Overlay toggle + double-tap zoom
   // ============================================================
 
-  let lastTapTime = 0;
-  const DOUBLE_TAP_DELAY = 300;
+  const taps = new TapDiscriminator({
+    onTap: () => onOverlayToggle?.(),
+    onDoubleTap: (x, y) => {
+      motion.beforeZoom();
+      zoomController.toggleZoom(x, y);
+    }
+  });
 
   function handleClick(e: MouseEvent) {
-    if ((e.target as HTMLElement).closest('.textBox, button, [role="button"], a')) return;
-    if (wasDrag) return;
-
-    // First tap outside after interacting with a text box dismisses it without toggling
-    if (textBoxWasActive) {
-      textBoxWasActive = false;
-      return;
-    }
-
-    const now = Date.now();
-    if (now - lastTapTime < DOUBLE_TAP_DELAY) {
-      lastTapTime = 0;
-      scroller?.stop();
-      zoomController.toggleZoom(e.clientX, e.clientY);
-      return;
-    }
-    lastTapTime = now;
-    const tapTime = now;
-    setTimeout(() => {
-      if (lastTapTime === tapTime) onOverlayToggle?.();
-    }, DOUBLE_TAP_DELAY);
-  }
-
-  // ============================================================
-  // Safari desktop trackpad pinch (proprietary gesture events)
-  // ============================================================
-
-  interface WebKitGestureEvent extends Event {
-    scale: number;
-    clientX: number;
-    clientY: number;
-  }
-
-  function handleGestureStart(e: Event) {
-    e.preventDefault();
-    const ge = e as WebKitGestureEvent;
-    scroller?.stop();
-    zoomController.gestureStart(ge.clientX ?? viewportWidth / 2, ge.clientY ?? viewportHeight / 2);
-  }
-
-  function handleGestureChange(e: Event) {
-    e.preventDefault();
-    const ge = e as WebKitGestureEvent;
-    zoomController.gestureChange(
-      ge.scale ?? 1,
-      ge.clientX ?? viewportWidth / 2,
-      ge.clientY ?? viewportHeight / 2
-    );
-  }
-
-  function handleGestureEnd(e: Event) {
-    e.preventDefault();
-    zoomController.gestureEnd();
+    if (gestureTargetRole(e.target) !== 'page') return;
+    if (tracker.wasDrag) return;
+    taps.tap(e.clientX, e.clientY);
   }
 
   // ============================================================
@@ -547,7 +433,7 @@
   function handleResize() {
     const wasLandscape = viewportWidth > viewportHeight;
     const pageIdx = lastReportedPage - 1;
-    resetZoom();
+    zoomController.reset();
     viewportWidth = window.innerWidth;
     viewportHeight = window.innerHeight;
     const isLandscape = viewportWidth > viewportHeight;
@@ -570,9 +456,7 @@
       scroller = new ScrollAnimator(scrollContainer);
     }
     outerDiv?.addEventListener('wheel', handleWheel, { passive: false });
-    outerDiv?.addEventListener('gesturestart', handleGestureStart);
-    outerDiv?.addEventListener('gesturechange', handleGestureChange);
-    outerDiv?.addEventListener('gestureend', handleGestureEnd);
+    tracker.attach();
     requestAnimationFrame(() => {
       applyAlignment(1);
       // Use navigateToPage for pair centering on landscape mount
@@ -589,9 +473,8 @@
     scroller?.destroy();
     zoomController.destroy();
     outerDiv?.removeEventListener('wheel', handleWheel);
-    outerDiv?.removeEventListener('gesturestart', handleGestureStart);
-    outerDiv?.removeEventListener('gesturechange', handleGestureChange);
-    outerDiv?.removeEventListener('gestureend', handleGestureEnd);
+    tracker.detach();
+    taps.cancel();
     if (settleTimer) clearTimeout(settleTimer);
   });
 </script>
@@ -603,10 +486,6 @@
   class="fixed inset-0"
   style:background-color="var(--reader-bg)"
   style:touch-action="none"
-  onpointerdown={handlePointerDown}
-  onpointermove={handlePointerMove}
-  onpointerup={handlePointerUp}
-  onpointercancel={handlePointerUp}
   onclick={handleClick}
   role="none"
 >
@@ -672,13 +551,3 @@
     </div>
   </div>
 </div>
-
-<style>
-  .scrollbar-hide {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-  .scrollbar-hide::-webkit-scrollbar {
-    display: none;
-  }
-</style>

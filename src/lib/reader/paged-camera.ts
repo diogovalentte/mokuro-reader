@@ -8,15 +8,15 @@
  *
  * Invariant: clamping runs after EVERY mutation (scale-only writes shrink
  * the bounds before any correction arrives, and anchorless paths never call
- * correctView at all). Axes where the scaled content fits lock to the mode's
- * alignment recomputed from the current scaled size. Clamping is gated by
+ * correctView at all). Axes where the scaled content fits center at the
+ * current scaled size. Clamping is gated by
  * the user's bounds/mobile settings — disabled means free panning, exactly
  * like the old keepInBounds no-op.
  */
 
 import { Animator } from './animator';
 import {
-  alignPosition,
+  basePosition,
   clampTranslate,
   panEdgeState,
   type BaseLayout,
@@ -71,14 +71,6 @@ export class PagedCamera {
     return this.base.scale * this.userZoom;
   }
 
-  get currentUserZoom(): number {
-    return this.userZoom;
-  }
-
-  get baseScale(): number {
-    return this.base.scale;
-  }
-
   private scaledSize(): Size {
     const c = this.content ?? { width: 0, height: 0 };
     const s = this.effectiveScale;
@@ -97,13 +89,13 @@ export class PagedCamera {
     this.place();
   }
 
-  /** Re-place the view at the base alignment for the current user zoom. */
+  /** Re-place the view at the base placement for the current user zoom. */
   place(): void {
     this.stopPan();
     const scaled = this.scaledSize();
     const viewport = this.config.getViewport();
-    this.tx = alignPosition(this.base.alignX, scaled.width, viewport.width);
-    this.ty = alignPosition(this.base.alignY, scaled.height, viewport.height);
+    this.tx = basePosition(this.base.alignX, scaled.width, viewport.width);
+    this.ty = basePosition(this.base.alignY, scaled.height, viewport.height);
     this.clampAndRender(true);
     // A freshly placed page is at rest — settle so the alignment position is
     // device-pixel rounded (#65 applies before any gesture too).
@@ -190,9 +182,7 @@ export class PagedCamera {
       x: viewport.width / 2 - c.x * sNext,
       y: viewport.height / 2 - c.y * sNext
     };
-    const t = this.config.isClampingEnabled()
-      ? clampTranslate(want, scaled, viewport, { x: this.base.alignX, y: this.base.alignY })
-      : want;
+    const t = this.config.isClampingEnabled() ? clampTranslate(want, scaled, viewport) : want;
     return { x: c.x * sNext + t.x, y: c.y * sNext + t.y };
   }
 
@@ -215,10 +205,7 @@ export class PagedCamera {
 
   private clamped(translate: Translate): Translate {
     if (!this.config.isClampingEnabled() || !this.content) return translate;
-    return clampTranslate(translate, this.scaledSize(), this.config.getViewport(), {
-      x: this.base.alignX,
-      y: this.base.alignY
-    });
+    return clampTranslate(translate, this.scaledSize(), this.config.getViewport());
   }
 
   private clampAndRender(resyncPan: boolean): void {

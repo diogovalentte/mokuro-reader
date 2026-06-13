@@ -574,6 +574,58 @@ test('paged keepZoom: effective scale survives a content swap (spread)', async (
   expect(r.effectiveAfter).toBeCloseTo(r.effectiveBefore, 3);
 });
 
+test('paged fillScreen: tall page fills the width and pans to the bottom; small pages center', async ({
+  page
+}) => {
+  await setupPagedWorld(page, { rtl: true, mode: 'zoomFillScreen' });
+  const r = await page.evaluate(async () => {
+    const z = (window as any).__paged;
+    // 1400x2000 page: taller than the viewport aspect → width must fill.
+    const rect0 = z.pageEl.getBoundingClientRect();
+    const widthFills = Math.abs(rect0.width - innerWidth) < 1.5;
+    const startsAtTop = Math.abs(rect0.top) < 1.5;
+
+    // The overflowing height is pannable all the way to the bottom edge.
+    z.camera.adjustView(0, rect0.height * 2); // grossly past the end — clamps
+    const rect1 = z.pageEl.getBoundingClientRect();
+    const bottomReachable = Math.abs(rect1.bottom - innerHeight) < 1.5;
+
+    // A page smaller than the viewport centers — never welded to the corner
+    // (the keepZoom/original top-pin bug class).
+    z.pageEl.style.width = '400px';
+    z.pageEl.style.height = '300px';
+    z.applyBase({ width: 400, height: 300 });
+    z.controller.snapToLevel(z.session.pagedLevels(z.state.baseScale, z.state.fitScale)[0]);
+    const rect2 = z.pageEl.getBoundingClientRect();
+    const centeredX = Math.abs(rect2.left - (innerWidth - rect2.width) / 2) < 1.5;
+    return { widthFills, startsAtTop, bottomReachable, centeredX, w: rect2.width };
+  });
+  expect(r.widthFills).toBe(true);
+  expect(r.startsAtTop).toBe(true);
+  expect(r.bottomReachable).toBe(true);
+  expect(r.centeredX).toBe(true);
+});
+
+test('paged zoomOriginal: a page smaller than the viewport centers and zooming out never pins it', async ({
+  page
+}) => {
+  await setupPagedWorld(page, { rtl: true, mode: 'zoomOriginal' });
+  const r = await page.evaluate(async () => {
+    const z = (window as any).__paged;
+    // Swap in a page smaller than the viewport at 1:1.
+    z.pageEl.style.width = '600px';
+    z.pageEl.style.height = '500px';
+    z.applyBase({ width: 600, height: 500 });
+    const rect = z.pageEl.getBoundingClientRect();
+    return {
+      cx: rect.left + rect.width / 2,
+      cy: rect.top + rect.height / 2
+    };
+  });
+  expect(r.cx).toBeCloseTo(1920 / 2, 0);
+  expect(r.cy).toBeCloseTo(1080 / 2, 0);
+});
+
 test('vertical fit-to-screen: side margins are not pannable while zoomed', async ({ page }) => {
   // Narrow fixed-size pages (560px in a 1920px viewport): at 2x the scaled
   // content (1120px) still fits, so there must be NO horizontal scroll range

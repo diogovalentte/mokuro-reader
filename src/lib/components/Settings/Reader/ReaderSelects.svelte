@@ -13,12 +13,13 @@
   let zoomModes = [
     { value: 'zoomFitToScreen', name: 'Fit to screen' },
     { value: 'zoomFitToWidth', name: 'Fit to width' },
+    { value: 'zoomFillScreen', name: 'Fill screen' },
     { value: 'zoomOriginal', name: 'Original size' },
     { value: 'keepZoom', name: 'Keep zoom' }
   ];
 
   let continuousZoomModes = [
-    { value: 'zoomFitToWidth', name: 'Fit to width' },
+    { value: 'zoomFillScreen', name: 'Fill screen' },
     { value: 'zoomFitToScreen', name: 'Fit to screen' },
     { value: 'zoomOriginal', name: 'Original size (1:1)' }
   ];

@@ -65,8 +65,9 @@ describe('PagedCamera — base application', () => {
     const { camera } = makeCamera();
     camera.applyBase(tall, baseTransform('keepZoom', tall, viewport, true));
     camera.setUserZoom(2);
-    // RTL keepZoom: end-aligned X — at 2x (1260 wide, fits) lock stays flush right
-    expect(camera.translate.x).toBeCloseTo(1600 - 700 * 0.9 * 2, 4);
+    // At 2x the 1260px width still fits the 1600 viewport — fitting axes
+    // center (the old end-aligned lock welded the page to the right edge).
+    expect(camera.translate.x).toBeCloseTo((1600 - 700 * 0.9 * 2) / 2, 4);
     expect(camera.effectiveScale).toBeCloseTo(1.8, 6);
   });
 });
@@ -185,5 +186,58 @@ describe('PagedCamera — projectCentered (double-tap target)', () => {
     const p = camera.projectCentered({ x: 800, y: 20 }, 2);
     expect(p.x).toBeCloseTo(800, 4);
     expect(p.y).toBeCloseTo(450, 4);
+  });
+});
+
+describe('PagedCamera — fitting axes center (top-pin bug)', () => {
+  it('zoomOriginal: a page smaller than the viewport sits centered, not at the top corner', () => {
+    const { camera } = makeCamera();
+    const small = { width: 700, height: 800 };
+    camera.applyBase(small, baseTransform('zoomOriginal', small, viewport, true));
+    expect(camera.translate.x).toBeCloseTo((1600 - 700) / 2, 4);
+    expect(camera.translate.y).toBeCloseTo((900 - 800) / 2, 4);
+  });
+
+  it('keepZoom: zooming below an axis fit re-centers that axis instead of pinning it', () => {
+    const { camera } = makeCamera();
+    camera.applyBase(tall, baseTransform('keepZoom', tall, viewport, true));
+    // base 0.9 → scaled 630x900; zoom to 0.8 → 504x720, both axes fit
+    camera.setUserZoom(0.8);
+    expect(camera.translate.x).toBeCloseTo((1600 - 700 * 0.9 * 0.8) / 2, 4);
+    expect(camera.translate.y).toBeCloseTo((900 - 1000 * 0.9 * 0.8) / 2, 4);
+  });
+
+  it('zoomOriginal: an overflowing page still starts reading at the top and pans freely', () => {
+    const { camera } = makeCamera();
+    const big = { width: 2000, height: 2800 };
+    camera.applyBase(big, baseTransform('zoomOriginal', big, viewport, true));
+    expect(camera.translate.y).toBe(0); // reading start
+    expect(camera.translate.x).toBe(1600 - 2000); // RTL right edge visible
+    camera.adjustView(0, 500); // pan down
+    expect(camera.translate.y).toBe(-500); // NOT snapped back to the top
+  });
+});
+
+describe('PagedCamera — fillScreen mode', () => {
+  it('tall page: width fills exactly, height overflows from the top', () => {
+    const { camera } = makeCamera();
+    camera.applyBase(tall, baseTransform('zoomFillScreen', tall, viewport, true));
+    const scale = 1600 / 700;
+    expect(camera.effectiveScale).toBeCloseTo(scale, 6);
+    expect(camera.translate.x).toBeCloseTo(0, 4);
+    expect(camera.translate.y).toBe(0);
+    camera.adjustView(0, 300);
+    expect(camera.translate.y).toBe(-300); // overflowing height is pannable
+  });
+
+  it('wide spread: height fills exactly, width overflows at the RTL reading corner', () => {
+    const { camera } = makeCamera();
+    const wide = { width: 3200, height: 900 };
+    camera.applyBase(wide, baseTransform('zoomFillScreen', wide, viewport, true));
+    expect(camera.effectiveScale).toBeCloseTo(1, 6);
+    expect(camera.translate.x).toBe(1600 - 3200);
+    expect(camera.translate.y).toBeCloseTo(0, 4);
+    camera.adjustView(-400, 0);
+    expect(camera.translate.x).toBe(1600 - 3200 + 400);
   });
 });

@@ -75,7 +75,7 @@ export function applyVerticalZoomLayout(
 }
 
 /** `flex-start` when the strip's visual height exceeds the container, else `center`. */
-export function horizontalAlignment(visualHeight: number, containerHeight: number): string {
+function horizontalAlignment(visualHeight: number, containerHeight: number): string {
   return visualHeight > containerHeight + 1 ? 'flex-start' : 'center';
 }
 

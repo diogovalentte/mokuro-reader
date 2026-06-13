@@ -38,7 +38,7 @@ const SNAP_TO_ONE_BELOW = 1.05;
 /** Double-tap zoom-in target level. */
 const DOUBLE_TAP_ZOOM = 2;
 
-export const CONTINUOUS_ZOOM_LEVELS: readonly number[] = [1, 1.5, 2, 3];
+const CONTINUOUS_ZOOM_LEVELS: readonly number[] = [1, 1.5, 2, 3];
 
 /** Structural subset of HTMLElement the controller scrolls. */
 export interface ZoomContainer {
@@ -51,6 +51,24 @@ export interface ZoomContainer {
 export interface ZoomAnchorTarget {
   getBoundingClientRect(): RectLike;
 }
+
+/**
+ * Why a settle happened. Components decide per reason whether to re-detect
+ * pages and report progress — replacing the suppressSettleReport boolean
+ * that callers had to toggle around synchronous calls (and which silently
+ * depended on Animator.snapTo firing onSettle synchronously).
+ *
+ * - 'gesture'   — a zoom gesture finished naturally (animation settled,
+ *                 pinch released). Geometry is final: report progress.
+ * - 'interrupt' — a competing input finished the zoom early (wheel scroll,
+ *                 new drag). Geometry is final: report progress.
+ * - 'nav'       — finished because a navigation is about to move the view.
+ *                 Do NOT report: the nav supersedes it.
+ * - 'reset'     — instant reset/snap with no anchor correction; the scroll
+ *                 offset is stale against the new layout. Do NOT report or
+ *                 detect: the caller re-anchors next.
+ */
+export type SettleReason = 'gesture' | 'interrupt' | 'nav' | 'reset';
 
 export interface ZoomWheelEventLike {
   deltaY: number;
@@ -102,9 +120,10 @@ export interface ZoomControllerConfig {
   onZoomedChange?(zoomed: boolean): void;
   /**
    * A gesture finished (animation settled, pinch released, finishNow, reset).
-   * Components re-run page detection and report progress here.
+   * Components re-run page detection and report progress here, gated by the
+   * reason — see SettleReason.
    */
-  onSettled?(zoom: number): void;
+  onSettled?(zoom: number, reason: SettleReason): void;
 }
 
 /** The continuous readers' surface: native scroll container + layout hook. */
@@ -153,7 +172,7 @@ export class ContinuousZoomController {
     this.animator = new Animator(1, (zoom) => this.frameStep(zoom), {
       factor: 0.25,
       epsilon: 0.005,
-      onSettle: () => this.settle()
+      onSettle: () => this.settle('gesture')
     });
   }
 
@@ -194,7 +213,11 @@ export class ContinuousZoomController {
     this.stepTo(next, { x: e.clientX, y: e.clientY });
   }
 
-  /** Step one level in `direction`, anchored at (x, y) or the viewport center. */
+  /**
+   * Step one level in `direction`, anchored at (x, y) or the viewport
+   * center. No production caller — this is the test seam (unit + e2e
+   * geometry suites) for stepping levels without the wheel accumulator.
+   */
   cycleZoom(direction: 1 | -1, anchorX?: number, anchorY?: number): void {
     const viewport = this.config.getViewport();
     const anchor = {
@@ -272,7 +295,7 @@ export class ContinuousZoomController {
       return;
     }
     this.target = nearestZoomLevel(this.levels, zoom);
-    this.settle();
+    this.settle('gesture');
   }
 
   // Safari desktop trackpad pinch (proprietary gesture events).
@@ -318,16 +341,16 @@ export class ContinuousZoomController {
    * Call before competing scroll intents (keyboard nav, manual page change,
    * scroll-intent wheel, new drag) so they act on settled geometry.
    */
-  finishNow(): void {
+  finishNow(reason: 'interrupt' | 'nav' = 'interrupt'): void {
     if (this.pinching) {
       this.pinching = false;
       this.target = nearestZoomLevel(this.levels, this.animator.current);
-      this.settle();
+      this.settle(reason);
       return;
     }
     if (this.animator.isAnimating) {
       this.animator.snapTo(this.target);
-      this.settle();
+      this.settle(reason);
     }
   }
 
@@ -351,7 +374,7 @@ export class ContinuousZoomController {
     this.target = level;
     this.anchorEl = null; // skip anchor correction; layout placement only
     this.animator.snapTo(level);
-    this.settle();
+    this.settle('reset');
   }
 
   destroy(): void {
@@ -432,10 +455,10 @@ export class ContinuousZoomController {
   }
 
   /** Shared settle: bookkeeping + component hooks. Runs exactly once per gesture. */
-  private settle(): void {
+  private settle(reason: SettleReason): void {
     const zoom = this.animator.current;
     this.config.onZoomedChange?.(zoom > 1 + ZOOM_EPS);
-    this.config.onSettled?.(zoom);
+    this.config.onSettled?.(zoom, reason);
   }
 }
 
@@ -444,4 +467,3 @@ export class ContinuousZoomController {
  * drives paged mode too. The original export name remains for existing
  * callers.
  */
-export { ContinuousZoomController as ZoomController };

@@ -172,6 +172,21 @@ describe('WebDAVProvider login()', () => {
     // no permission heuristics either
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('rejects a username with no password instead of connecting anonymously', async () => {
+    // The only anonymous login is a fully blank one. A username with no
+    // password is an incomplete credential, not a browse-only session — it
+    // must not silently degrade to anonymous read-only.
+    const provider = await freshProvider();
+    identityMock.mockResolvedValue({ kind: 'anonymous' });
+
+    await expect(
+      provider.login({ serverUrl: 'https://host', username: 'alice' })
+    ).rejects.toMatchObject({ name: 'ProviderError', code: 'INVALID_CREDENTIALS' });
+
+    expect(identityMock).not.toHaveBeenCalled();
+    expect(provider.isAuthenticated()).toBe(false);
+  });
 });
 
 describe('WebDAVProvider session restore', () => {
@@ -181,9 +196,7 @@ describe('WebDAVProvider session restore', () => {
     localStorage.setItem('webdav_password', 'stale');
     localStorage.setItem('active_cloud_provider', 'webdav');
 
-    identityMock
-      .mockResolvedValueOnce({ kind: 'invalid-credentials' }) // restore with creds
-      .mockResolvedValueOnce({ kind: 'anonymous' }); // anonymous reconnect
+    identityMock.mockResolvedValueOnce({ kind: 'invalid-credentials' }); // restore with creds
 
     const provider = await freshProvider();
 
@@ -192,26 +205,27 @@ describe('WebDAVProvider session restore', () => {
     expect(localStorage.getItem('webdav_username')).toBe('alice');
     expect(localStorage.getItem('active_cloud_provider')).toBe('webdav');
     expect(provider.getStatus().needsAttention).toBe(true);
-    // anonymous reconnect succeeded - library stays browsable
-    expect(provider.isAuthenticated()).toBe(true);
-    expect(provider.isReadOnly).toBe(true);
+    // No silent anonymous fallback: the session is logged out, prompting a
+    // re-login rather than quietly browsing read-only.
+    expect(provider.isAuthenticated()).toBe(false);
+    // only ONE identity check (the rejected one) — no anonymous reconnect
+    expect(identityMock).toHaveBeenCalledTimes(1);
   });
 
-  it('restores username-without-password sessions anonymously with an attention flag', async () => {
+  it('flags attention without reconnecting when restoring a username-without-password session', async () => {
     localStorage.setItem('webdav_server_url', 'https://host');
     localStorage.setItem('webdav_username', 'alice');
     localStorage.setItem('active_cloud_provider', 'webdav');
 
-    identityMock.mockResolvedValue({ kind: 'anonymous' });
-
     const provider = await freshProvider();
 
     expect(provider.getStatus().needsAttention).toBe(true);
-    expect(provider.isReadOnly).toBe(true);
+    // logged out, not anonymously browsing
+    expect(provider.isAuthenticated()).toBe(false);
     // username preserved for login-form pre-fill
     expect(localStorage.getItem('webdav_username')).toBe('alice');
-    // identity was checked WITHOUT credentials
-    expect(identityMock).toHaveBeenCalledWith('https://host', undefined, undefined);
+    // no connection attempt at all — nothing to silently fall back to
+    expect(identityMock).not.toHaveBeenCalled();
   });
 
   it('keeps the stored password when restore hits a rate-limited (429) identity check (M-6)', async () => {
@@ -265,9 +279,11 @@ describe('WebDAVProvider write-failure policy', () => {
     } else {
       identityMock.mockResolvedValue({ kind: 'unsupported' });
     }
+    // A credential-less session is a fully blank (anonymous) login — username
+    // is only sent alongside a password now.
     await provider.login({
       serverUrl: 'https://host',
-      username: 'alice',
+      username: opts.hasPassword ? 'alice' : undefined,
       password: opts.hasPassword ? 'pw' : undefined
     });
     return provider;

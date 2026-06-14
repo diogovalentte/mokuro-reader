@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.7.3] - 2026-06-14
+
+### Fixed
+
+- Inertial panning (fling) restored in paged mode (#232)
+
+### Changed
+
+- Default page-flip swipe threshold lowered to 35%
+
 ## [1.7.2] - 2026-06-13
 
 ### Added

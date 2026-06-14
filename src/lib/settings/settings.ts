@@ -276,7 +276,7 @@ const defaultSettings: Settings = {
     success: '#15803d',
     danger: '#b91c1c'
   },
-  swipeThreshold: 50,
+  swipeThreshold: 35,
   edgeButtonWidth: 40,
   showTimer: false,
   quickActions: true,
@@ -355,7 +355,7 @@ const mobileDefaultSettings: Settings = {
   defaultFullscreen: true,
   edgeButtonWidth: 60,
   showTimer: false,
-  swipeThreshold: 50
+  swipeThreshold: 35
 };
 
 // Desktop-optimized default settings
@@ -365,7 +365,7 @@ const desktopDefaultSettings: Settings = {
   defaultFullscreen: false,
   edgeButtonWidth: 40,
   showTimer: true,
-  swipeThreshold: 50
+  swipeThreshold: 35
 };
 
 type Profiles = Record<string, Settings>;

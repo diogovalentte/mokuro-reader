@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PagedCamera } from './paged-camera';
 import { baseTransform } from './paged-zoom-layout';
+import { setInstantAnimations } from './animator';
 
 const viewport = { width: 1600, height: 900 };
 
@@ -19,26 +20,37 @@ function makeCamera(opts?: { clamp?: boolean; dpr?: number }) {
   return { camera, wrapper };
 }
 
-/** Deterministic rAF pump for the pan Animators. */
-let rafQueue: FrameRequestCallback[] = [];
+/**
+ * Deterministic rAF pump for the pan Animators and the kinetic glide. Uses an
+ * id→callback map so cancelAnimationFrame actually removes a pending frame —
+ * the kinetic tracker cancels its poll loop on release, and a no-op caf would
+ * let the stale loop keep stamping the shared timestamp and freeze the glide.
+ */
+let rafMap = new Map<number, FrameRequestCallback>();
+let rafSeq = 0;
 let clock = 0;
 
 function pump(frames = 80, dt = 16.67) {
-  for (let i = 0; i < frames && rafQueue.length > 0; i++) {
+  for (let i = 0; i < frames && rafMap.size > 0; i++) {
     clock += dt;
-    const cbs = rafQueue.splice(0);
-    for (const cb of cbs) cb(clock);
+    const batch = [...rafMap];
+    rafMap.clear();
+    for (const [, cb] of batch) cb(clock);
   }
 }
 
 beforeEach(() => {
-  rafQueue = [];
+  rafMap = new Map();
+  rafSeq = 0;
   clock = 0;
   vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
-    rafQueue.push(cb);
-    return rafQueue.length;
+    const id = ++rafSeq;
+    rafMap.set(id, cb);
+    return id;
   });
-  vi.stubGlobal('cancelAnimationFrame', () => {});
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+    rafMap.delete(id);
+  });
   vi.spyOn(performance, 'now').mockImplementation(() => clock);
 });
 
@@ -239,5 +251,87 @@ describe('PagedCamera — fillScreen mode', () => {
     expect(camera.translate.y).toBeCloseTo(0, 4);
     camera.adjustView(-400, 0);
     expect(camera.translate.x).toBe(1600 - 3200 + 400);
+  });
+});
+
+describe('PagedCamera — inertial fling (kinetic)', () => {
+  // A big overflowing page so there's room to glide and a bound to hit.
+  const big = { width: 4000, height: 3000 };
+
+  function drag(camera: PagedCamera, stepX: number, stepY: number, frames: number) {
+    camera.kineticStart();
+    pump(1); // let the track loop arm
+    for (let i = 0; i < frames; i++) {
+      camera.adjustView(stepX, stepY); // pointer-space delta → content moves
+      pump(1); // a track sample for this frame
+    }
+  }
+
+  it('glides past the release point after a fast drag, then settles', () => {
+    const { camera } = makeCamera();
+    camera.applyBase(big, baseTransform('zoomOriginal', big, viewport, true));
+    // start centered-ish then drag up-left fast (content moves up/left)
+    const releaseY = camera.translate.y;
+    drag(camera, 0, 60, 6); // adjustView(0,60) → ty -= 60 each frame (content up)
+    const atRelease = camera.translate.y;
+    camera.kineticStop();
+    pump(120);
+    // glided further in the drag direction (ty decreased past release)
+    expect(camera.translate.y).toBeLessThan(atRelease);
+    expect(atRelease).toBeLessThan(releaseY);
+    // came to rest within bounds (ty in [view-scaled, 0])
+    expect(camera.translate.y).toBeGreaterThanOrEqual(900 - 3000 - 1);
+    expect(camera.translate.y).toBeLessThanOrEqual(0 + 1);
+  });
+
+  it('a fling never escapes the clamp bounds', () => {
+    const { camera } = makeCamera();
+    camera.applyBase(big, baseTransform('zoomOriginal', big, viewport, true));
+    drag(camera, 0, 600, 6); // huge upward velocity → would overshoot the bottom edge
+    camera.kineticStop();
+    pump(300);
+    // clamped to the bottom edge, not flung past it
+    expect(camera.translate.y).toBeGreaterThanOrEqual(900 - 3000 - 1);
+  });
+
+  it('does not fling when animations are instant (e-ink); just settles', () => {
+    setInstantAnimations(true);
+    try {
+      const { camera } = makeCamera();
+      camera.applyBase(big, baseTransform('zoomOriginal', big, viewport, true));
+      drag(camera, 0, 60, 6);
+      const atRelease = camera.translate.y;
+      camera.kineticStop();
+      pump(120);
+      expect(camera.translate.y).toBe(atRelease); // no glide
+    } finally {
+      setInstantAnimations(false);
+    }
+  });
+
+  it('an explicit panBy (wheel/keyboard scroll) cancels an in-flight glide', () => {
+    const { camera } = makeCamera();
+    camera.applyBase(big, baseTransform('zoomOriginal', big, viewport, true));
+    drag(camera, 0, 60, 6);
+    camera.kineticStop();
+    pump(2); // glide a couple frames (fling still has momentum)
+    const mid = camera.translate.y;
+    camera.panBy(0, -100); // wheel scroll up arrives mid-fling
+    pump(120); // run the panBy animation to completion
+    // The view lands at the panBy target (mid - 100), proving the fling was
+    // cancelled — had it kept gliding it would be far more negative than that.
+    expect(camera.translate.y).toBeCloseTo(mid - 100, 0);
+  });
+
+  it('stopPan cancels an in-flight glide (a new press wins)', () => {
+    const { camera } = makeCamera();
+    camera.applyBase(big, baseTransform('zoomOriginal', big, viewport, true));
+    drag(camera, 0, 60, 6);
+    camera.kineticStop();
+    pump(2); // glide a couple frames
+    const mid = camera.translate.y;
+    camera.stopPan(); // new gesture interrupts
+    pump(60);
+    expect(camera.translate.y).toBe(mid); // frozen where the glide was cut
   });
 });

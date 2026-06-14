@@ -23,6 +23,11 @@ export function setInstantAnimations(instant: boolean): void {
   instantMode = instant;
 }
 
+/** Whether reader animations are in instant mode (e-ink "disable animations"). */
+export function areAnimationsInstant(): boolean {
+  return instantMode;
+}
+
 export class Animator {
   current: number;
   target: number;

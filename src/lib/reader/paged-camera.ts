@@ -14,7 +14,8 @@
  * like the old keepInBounds no-op.
  */
 
-import { Animator } from './animator';
+import { Animator, areAnimationsInstant } from './animator';
+import { createKinetic, type KineticControls } from './kinetic';
 import {
   basePosition,
   clampTranslate,
@@ -42,6 +43,7 @@ export class PagedCamera {
   private ty = 0;
   private panX: Animator;
   private panY: Animator;
+  private kinetic: KineticControls;
 
   constructor(config: PagedCameraConfig) {
     this.config = config;
@@ -61,6 +63,40 @@ export class PagedCamera {
       },
       { factor: 0.22, epsilon: 0.5, onSettle: () => this.settle() }
     );
+    // Inertial panning (restored from panzoom's kinetic.js). It polls the
+    // live translate during a drag and, on release, glides it with momentum.
+    this.kinetic = createKinetic(
+      () => ({ x: this.tx, y: this.ty }),
+      (x, y) => {
+        const c = this.clamped({ x, y });
+        this.tx = c.x;
+        this.ty = c.y;
+        this.syncPan();
+        this.render();
+      }
+    );
+  }
+
+  /** Begin tracking for an inertial fling (call when a drag starts). */
+  kineticStart(): void {
+    if (areAnimationsInstant()) return;
+    this.kinetic.start();
+  }
+
+  /**
+   * Release a drag: glide with momentum if it was fast enough, otherwise
+   * settle. Animations-off (e-ink) skips the glide entirely.
+   */
+  kineticStop(): void {
+    if (areAnimationsInstant()) {
+      // If 'disable animations' flipped on mid-drag, the track() poll loop is
+      // still armed from kineticStart(); cancel it so it doesn't reschedule
+      // itself forever (this branch never reaches kinetic.stop()).
+      this.kinetic.cancel();
+      this.settle();
+      return;
+    }
+    this.kinetic.stop(() => this.settle());
   }
 
   get translate(): Translate {
@@ -121,15 +157,20 @@ export class PagedCamera {
 
   /** Smoothly pan by a delta (arrow keys, wheel-pan). Targets are clamped. */
   panBy(dx: number, dy: number): void {
+    // An explicit animated pan (wheel/keyboard) supersedes inertial momentum;
+    // cancel the glide so the two don't fight over the translate. (The pan
+    // animators are left running so successive wheel pans still chain.)
+    this.kinetic.cancel();
     const target = this.clamped({ x: this.panX.target + dx, y: this.panY.target + dy });
     this.panX.setTarget(target.x);
     this.panY.setTarget(target.y);
   }
 
-  /** Stop pan animations, keeping the current position. */
+  /** Stop pan animations and any inertial glide, keeping the current position. */
   stopPan(): void {
     this.panX.stop();
     this.panY.stop();
+    this.kinetic.cancel();
     this.syncPan();
   }
 
@@ -201,6 +242,7 @@ export class PagedCamera {
   destroy(): void {
     this.panX.destroy();
     this.panY.destroy();
+    this.kinetic.cancel();
   }
 
   private clamped(translate: Translate): Translate {

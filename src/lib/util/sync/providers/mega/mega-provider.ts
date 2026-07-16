@@ -11,6 +11,7 @@ import { ProviderError } from '../../provider-interface';
 import { megaCache } from './mega-cache';
 import { cacheManager } from '../../cache-manager';
 import { setActiveProviderKey, clearActiveProviderKey } from '../../provider-detection';
+import { isCbzFile, isSidecarFile, isRootConfigFile } from '../../syncable-file';
 import type { FolderOperations, FolderInfo, FolderItem } from '../../folder-deduplicator';
 import {
   isMfaRequiredError,
@@ -93,6 +94,18 @@ async function retryWithBackoff<T>(
   throw lastError;
 }
 
+/** megajs surfaces a server-side missing node as `ENOENT (-9)`. */
+function isMegaNotFoundError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('ENOENT') || message.includes('(-9)');
+}
+
+/** megajs surfaces a full account as `EOVERQUOTA (-17)`. */
+function isMegaOverQuotaError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('EOVERQUOTA') || message.includes('(-17)');
+}
+
 /**
  * Smart retry wrapper for MEGA operations that may fail due to stale cache
  * When two devices sync back and forth, file IDs change but local cache is stale
@@ -150,6 +163,7 @@ export class MegaProvider implements SyncProvider {
   readonly type = 'mega' as const;
   readonly name = 'MEGA';
   readonly supportsWorkerDownload = true; // Workers download owned nodes via sid + per-file key
+  readonly supportsWorkerUpload = true;
   readonly uploadConcurrencyLimit = 6;
   readonly downloadConcurrencyLimit = 6;
 
@@ -163,6 +177,32 @@ export class MegaProvider implements SyncProvider {
   // Without these, N parallel uploads each find no folder and call mkdir N times.
   private mokuroFolderPromise: Promise<any> | null = null;
   private seriesFolderPromises = new Map<string, Promise<any>>();
+
+  private cacheRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Reactive cache: megajs's sc stream applies every change (ours AND other
+   * devices') to storage.files and emits these events. A debounced rebuild
+   * from that now-authoritative tree keeps the UI cache — and therefore the
+   * GUI, which subscribes to it — in sync without any forced refreshes.
+   * The unified manager's incremental cache updates still give instant
+   * feedback for our own operations; this converges everything shortly after.
+   */
+  private attachChangeListeners(storage: any): void {
+    const schedule = () => {
+      if (this.cacheRefreshTimer) clearTimeout(this.cacheRefreshTimer);
+      this.cacheRefreshTimer = setTimeout(() => {
+        this.cacheRefreshTimer = null;
+        if (this.storage !== storage) return; // logged out / replaced
+        megaCache.fetch(true).catch((err) => {
+          console.error('[MEGA] reactive cache refresh failed:', err);
+        });
+      }, 500);
+    };
+    for (const event of ['add', 'move', 'delete', 'update']) {
+      storage.on(event, schedule);
+    }
+  }
 
   constructor() {
     if (browser) {
@@ -260,17 +300,21 @@ export class MegaProvider implements SyncProvider {
 
       // Fresh interactive login. The constructor cb fires after the tree loads
       // (autoload:true), so the Storage is ready once this promise resolves.
-      // keepalive:false disables megajs's server-change (sc) long-poll. We never use
-      // push notifications (we reload explicitly), and that poll's handler crashes on
-      // delete events ("Cannot read properties of undefined (reading 'parent')").
+      // keepalive:true runs megajs's server-change (sc) long-poll: it is what
+      // applies moves/deletes to the local tree and emits the add/move/delete/
+      // update events our reactive cache listens to. (The old "sc handler
+      // crashes on delete events" was self-inflicted: we manually removed
+      // nodes from storage.files, so the later sc delete packet found no node
+      // and crashed on `.parent`. The manual removals are gone.)
       const storage: any = await new Promise((resolve, reject) => {
         const s = new Storage(
-          { email, password, secondFactorCode, autoload: true, keepalive: false } as any,
+          { email, password, secondFactorCode, autoload: true, keepalive: true } as any,
           (error: Error | null) => (error ? reject(error) : resolve(s))
         );
       });
 
       this.storage = storage;
+      this.attachChangeListeners(storage);
       await this.ensureMokuroFolder();
       this.persistSession();
       this.needsReconnect = false;
@@ -328,16 +372,18 @@ export class MegaProvider implements SyncProvider {
   /** Rebuild an authenticated Storage from a saved session blob (no password, no login round-trip). */
   private async restoreSession(blob: MegaSessionBlob): Promise<void> {
     const { Storage } = await import('megajs');
-    // Force keepalive:false so the restored session never starts the crashing sc poll,
-    // even for blobs persisted before that default changed.
+    // Force keepalive:true (overriding blobs persisted while the sc poll was
+    // disabled): the sc stream keeps the local tree in sync and feeds the
+    // reactive cache events. See login() for why the old crash is gone.
     const storage: any = Storage.fromJSON({
       ...(blob as any),
-      options: { ...((blob as any).options ?? {}), keepalive: false }
+      options: { ...((blob as any).options ?? {}), keepalive: true }
     });
     // fromJSON does no network and loads no tree; reload populates root + files.
     // A dead session throws ESID here.
     await storage.reload(true);
     this.storage = storage;
+    this.attachChangeListeners(storage);
     this.mokuroFolder = null;
     await this.ensureMokuroFolder();
     this.needsReconnect = false;
@@ -409,9 +455,29 @@ export class MegaProvider implements SyncProvider {
       // server-side. Every storage (login, restore, reinitialize, upload worker)
       // reuses the one persisted sid, so closing any of them invalidates the
       // stored token and makes every later request fail with ESID (-15).
-      await this.storage.reload(true);
+      //
+      // Two megajs reload() quirks force extra work here:
+      // - reload() attaches a NEW api 'sc' handler on every call without
+      //   removing the old one. Stacked handlers process each server packet
+      //   N times, and a re-processed delete splices with indexOf === -1,
+      //   silently removing an unrelated sibling from the tree.
+      // - reload() only ADDS nodes (_importFile skips known handles) and the
+      //   sc delete handler never removes nodes from storage.files, so a node
+      //   deleted server-side survives every reload as a permanent "ghost"
+      //   that fails all later operations with ENOENT (-9). Rebuild from an
+      //   empty map so the reloaded tree exactly mirrors the server.
+      this.storage.api?.removeAllListeners?.('sc');
+      const previousFiles = this.storage.files;
+      this.storage.files = {};
+      try {
+        await this.storage.reload(true);
+      } catch (error) {
+        // Keep the old (stale but usable) tree if the reload didn't complete.
+        this.storage.files = previousFiles;
+        throw error;
+      }
       this.mokuroFolder = null;
-      console.log('✅ MEGA cache reinitialized (in-place reload)');
+      console.log('✅ MEGA cache reinitialized (fresh in-place reload)');
     } catch (error) {
       if (isSessionExpiredError(error)) {
         this.markSessionExpired();
@@ -559,13 +625,9 @@ export class MegaProvider implements SyncProvider {
 
         // Check if file is a CBZ, sidecar, or JSON
         const name = (file as any).name || '';
-        const isCbz = name.toLowerCase().endsWith('.cbz');
-        const lowerName = name.toLowerCase();
-        const isSidecar =
-          lowerName.endsWith('.mokuro') ||
-          lowerName.endsWith('.mokuro.gz') ||
-          /\.(webp|jpe?g)$/i.test(lowerName);
-        const isJson = name === 'volume-data.json' || name === 'profiles.json';
+        const isCbz = isCbzFile(name);
+        const isSidecar = isSidecarFile(name);
+        const isJson = isRootConfigFile(name);
 
         if (!isCbz && !isSidecar && !isJson) continue;
 
@@ -683,22 +745,22 @@ export class MegaProvider implements SyncProvider {
             buffer = new Uint8Array(arrayBuffer);
           }
 
-          // Check if file already exists
           const children = await this.listFolder(targetFolder);
-          const existingFile = children.find((f: any) => f.name === fileName && !f.directory);
 
-          // Delete existing file if found
-          if (existingFile) {
-            const existingFileId = existingFile.nodeId || existingFile.id;
+          // Replace semantics: delete EVERY same-name copy (MEGA allows
+          // duplicate names, so racing uploads can leave several). Do NOT
+          // remove them from storage.files manually — the sc stream delivers
+          // the delete and megajs applies it; a manual removal makes the
+          // later sc packet crash on a missing node (the original "keepalive
+          // crash"). A copy can also be a ghost — deleted server-side but
+          // never evicted from storage.files by megajs — so a server
+          // "already gone" answer means converged, not failed.
+          const existingFiles = children.filter((f: any) => f.name === fileName && !f.directory);
+          for (const existingFile of existingFiles) {
             await new Promise<void>((resolve, reject) => {
               existingFile.delete(true, (error: Error | null) => {
-                if (error) reject(error);
-                else {
-                  resolve();
-                  // MEGA.js doesn't remove from storage.files, so we do it manually
-                  // Done after resolve() to let MEGA.js finish its internal cleanup first
-                  delete this.storage.files[existingFileId];
-                }
+                if (error && !isMegaNotFoundError(error)) reject(error);
+                else resolve();
               });
             });
           }
@@ -737,12 +799,22 @@ export class MegaProvider implements SyncProvider {
         `Upload ${path} to MEGA`,
         () => this.reinitialize()
       );
-      // Refresh cache from MEGA's internal storage.files (which auto-updates on upload)
-      // Skip reinitialize since storage.files is already fresh
-      await megaCache.fetch(true);
+      // No cache rebuild here: uploads emit a local 'add' event (megajs adds
+      // the node from the API response), which the change listeners turn into
+      // a debounced refresh. A mid-operation rebuild would clobber the
+      // manager's incremental cache updates with a not-yet-synced tree.
 
       return fileId;
     } catch (error) {
+      // Typed QUOTA_EXCEEDED with a message users can act on, instead of
+      // megajs's raw "EOVERQUOTA (-17): Request over quota".
+      if (isMegaOverQuotaError(error)) {
+        throw new ProviderError(
+          'MEGA storage is full — free up space or upgrade your plan',
+          'mega',
+          'QUOTA_EXCEEDED'
+        );
+      }
       throw new ProviderError(
         `Failed to upload volume CBZ: ${error instanceof Error ? error.message : 'Unknown error'}`,
         'mega',
@@ -856,7 +928,9 @@ export class MegaProvider implements SyncProvider {
           );
 
           if (!megaFile) {
-            throw new Error('File not found');
+            // Typed: the shared layer treats an already-gone DELETE target as
+            // converged, and relies on this code (never message text).
+            throw new ProviderError(`File not found: ${file.path}`, 'mega', 'NOT_FOUND');
           }
 
           return new Promise<void>((resolve, reject) => {
@@ -866,7 +940,10 @@ export class MegaProvider implements SyncProvider {
               } else {
                 console.log(`✅ Deleted file from MEGA (${fileId})`);
                 resolve();
-                delete this.storage.files[fileId];
+                // No manual storage.files cleanup: the sc stream applies the
+                // delete (and a manual removal would crash its handler). The
+                // caller's cache update + the change listeners keep the UI
+                // current.
               }
             });
           });
@@ -874,11 +951,10 @@ export class MegaProvider implements SyncProvider {
         `Delete file ${fileId} from MEGA`,
         () => this.reinitialize()
       );
-
-      // Refresh cache from MEGA's internal storage.files (which auto-updates on delete)
-      // Skip reinitialize since storage.files is already fresh
-      await megaCache.fetch(true);
     } catch (error) {
+      if (error instanceof ProviderError) {
+        throw error;
+      }
       throw new ProviderError(
         `Failed to delete volume CBZ: ${error instanceof Error ? error.message : 'Unknown error'}`,
         'mega',
@@ -904,7 +980,11 @@ export class MegaProvider implements SyncProvider {
         async () => {
           const megaFile = this.getNodeById(file.fileId);
           if (!megaFile) {
-            throw new Error('File not found');
+            // Typed NOT_FOUND: the source node is gone (deleted elsewhere or a
+            // stale cached id). The shared rename layer treats this as a
+            // GENUINE failure — never "already moved" — so it must be
+            // distinguishable from other rename errors by code, not message.
+            throw new ProviderError(`File not found: ${file.path}`, 'mega', 'NOT_FOUND');
           }
 
           const pathParts = normalizedNewPath.split('/');
@@ -934,6 +1014,22 @@ export class MegaProvider implements SyncProvider {
 
           if (megaFile.parent !== targetFolder) {
             await megaFile.moveTo(targetFolder);
+            // megajs applies moves to the local tree only when the sc packet
+            // arrives (seconds later). Mirror it now so checks later in this
+            // same operation — collision lookups, empty-folder pruning — see
+            // the true state. Safe: the sc handler no-ops when the parent
+            // already matches.
+            const oldParent = megaFile.parent;
+            if (oldParent?.children) {
+              const idx = oldParent.children.indexOf(megaFile);
+              if (idx >= 0) oldParent.children.splice(idx, 1);
+            }
+            megaFile.parent = targetFolder;
+            if (Array.isArray(targetFolder.children)) {
+              targetFolder.children.push(megaFile);
+            } else {
+              targetFolder.children = [megaFile];
+            }
           }
           if (megaFile.name !== newFileName) {
             await megaFile.rename(newFileName);
@@ -1057,6 +1153,50 @@ export class MegaProvider implements SyncProvider {
   /**
    * Delete an entire series folder
    */
+  /**
+   * Remove a series directory only if the SERVER confirms it is empty — never
+   * a blind recursive delete (folder.delete on MEGA is recursive). Emptiness
+   * is checked with a live `f` API query for the folder's nodes, NOT the local
+   * tree, which can lag behind just-completed moves until the sc packet lands.
+   */
+  async removeDirectoryIfEmpty(relativePath: string): Promise<void> {
+    if (!this.isAuthenticated()) return;
+
+    const normalized = relativePath.replace(/^\/+|\/+$/g, '');
+    if (!normalized) return;
+
+    try {
+      const mokuroFolder = await this.ensureMokuroFolder();
+      const children = await this.listFolder(mokuroFolder);
+      const target = children.find((f: any) => f.directory && f.name === normalized);
+      if (!target?.nodeId) return;
+
+      // Server-side emptiness check: list the folder's own nodes.
+      const response: any = await new Promise((resolve, reject) => {
+        this.storage.api.request(
+          { a: 'f', c: 1, n: target.nodeId },
+          (error: Error | null, result: any) => (error ? reject(error) : resolve(result))
+        );
+      });
+      const nodes: any[] = Array.isArray(response?.f) ? response.f : [];
+      const hasContents = nodes.some((n: any) => n.h !== target.nodeId);
+      if (hasContents) {
+        console.log(
+          `MEGA folder '${normalized}' not pruned: server still reports ${nodes.length - 1} node(s)`
+        );
+        return;
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        target.delete(true, (error: Error | null) => (error ? reject(error) : resolve()));
+      });
+      console.log(`✅ Pruned empty series folder '${normalized}' from MEGA`);
+    } catch (error) {
+      // Best-effort: an orphaned empty directory is harmless.
+      console.warn(`Could not prune MEGA folder '${normalized}':`, error);
+    }
+  }
+
   async deleteSeriesFolder(seriesTitle: string): Promise<void> {
     if (!this.isAuthenticated()) {
       throw new ProviderError('Not authenticated', 'mega', 'NOT_AUTHENTICATED', true);
@@ -1092,10 +1232,8 @@ export class MegaProvider implements SyncProvider {
         `Delete series folder '${seriesTitle}' from MEGA`,
         () => this.reinitialize()
       );
-
-      // Refresh cache from MEGA's internal storage.files (which auto-updates on delete)
-      // Skip reinitialize since storage.files is already fresh
-      await megaCache.fetch(true);
+      // Cache upkeep is the caller's incremental updates + the sc-driven
+      // change listeners; a rebuild here races the not-yet-synced tree.
     } catch (error) {
       throw new ProviderError(
         `Failed to delete series folder: ${error instanceof Error ? error.message : 'Unknown error'}`,

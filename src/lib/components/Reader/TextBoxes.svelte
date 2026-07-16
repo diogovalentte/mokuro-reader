@@ -16,6 +16,8 @@
     type VolumeMetadata
   } from '$lib/anki-connect';
   import { db } from '$lib/catalog/db';
+  import { layoutLines, getDefaultMeasurer, type LineLayout } from '$lib/reader/line-coords-layout';
+  import { dedupeBlocks } from '$lib/reader/block-dedupe';
 
   interface ContextMenuData {
     x: number;
@@ -51,22 +53,43 @@
     area: number;
     useMinDimensions: boolean;
     isOriginalMode: boolean;
+    /** Per-line positions/sizes from lines_coords (auto mode only);
+     * null falls back to legacy hover-fit auto rendering */
+    lineLayouts: LineLayout[] | null;
     blockIndex: number; // Original index in page.blocks
   }
 
   let textBoxes = $derived(
-    page.blocks
-      .map((block, blockIndex) => {
+    dedupeBlocks(page.blocks)
+      .map(({ block, blockIndex }) => {
         const { img_height, img_width } = page;
         const { box, font_size, lines, vertical } = block;
 
         let [_xmin, _ymin, _xmax, _ymax] = box;
 
-        // Only expand bounding boxes when using auto font sizing
-        // Manual font sizes should use exact OCR bounding boxes
+        // Replace manual ellipsis with proper ellipsis character (…)
+        // Handle both ASCII periods (...) and full-width periods (．．．)
+        const processedLines = lines.map((line) =>
+          line.replace(/\.\.\./g, '…').replace(/．．．/g, '…')
+        );
+
+        const isOriginalMode = $settings.fontSize === 'original';
+        const isAutoMode = $settings.fontSize === 'auto';
+
+        // Auto mode: derive per-line position/size from the OCR line quads.
+        // mokuro's block font_size overstates the true character size (it is
+        // the quad width, furigana included), so rendering it as-is overflows
+        // the box; the quads themselves are accurate. Null (no lines_coords,
+        // e.g. pre-lines_coords imports) → legacy hover-fit auto below.
+        const lineLayouts = isAutoMode
+          ? layoutLines(block, processedLines, getDefaultMeasurer())
+          : null;
+
+        // Only expand bounding boxes for legacy hover-fit auto sizing;
+        // per-line layout and manual font sizes use exact OCR bounding boxes
         let xmin, ymin, xmax, ymax;
 
-        if ($settings.fontSize === 'auto') {
+        if (isAutoMode && !lineLayouts) {
           // Expand bounding box by 10% (5% on each side) to give text more room
           const originalWidth = _xmax - _xmin;
           const originalHeight = _ymax - _ymin;
@@ -78,7 +101,6 @@
           xmax = clamp(_xmax + expansionX, 0, img_width);
           ymax = clamp(_ymax + expansionY, 0, img_height);
         } else {
-          // Use exact OCR bounding boxes for manual font sizes
           xmin = _xmin;
           ymin = _ymin;
           xmax = _xmax;
@@ -89,12 +111,6 @@
         const height = ymax - ymin;
         const area = width * height;
 
-        // Replace manual ellipsis with proper ellipsis character (…)
-        // Handle both ASCII periods (...) and full-width periods (．．．)
-        const processedLines = lines.map((line) =>
-          line.replace(/\.\.\./g, '…').replace(/．．．/g, '…')
-        );
-
         // Determine font size based on setting
         let fontSize: string;
         if ($settings.fontSize === 'auto' || $settings.fontSize === 'original') {
@@ -102,8 +118,6 @@
         } else {
           fontSize = `${$settings.fontSize}pt`;
         }
-
-        const isOriginalMode = $settings.fontSize === 'original';
 
         const textBox: TextBoxData = {
           left: `${xmin}px`,
@@ -116,6 +130,7 @@
           area,
           useMinDimensions: $settings.fontSize !== 'auto' && !isOriginalMode,
           isOriginalMode,
+          lineLayouts,
           blockIndex
         };
 
@@ -274,8 +289,14 @@
     const [index, initialFontSize] = params;
 
     const calculate = () => {
-      // Skip if already processed, OCR is hidden, or using manual font size
-      if (processedTextBoxes.has(index) || display !== 'block' || $settings.fontSize !== 'auto')
+      // Skip if already processed, OCR is hidden, using manual font size, or
+      // the box is laid out per-line from lines_coords (no fitting needed)
+      if (
+        processedTextBoxes.has(index) ||
+        display !== 'block' ||
+        $settings.fontSize !== 'auto' ||
+        element.classList.contains('perLine')
+      )
         return;
 
       // Mark as processed immediately to prevent duplicate calculations
@@ -317,6 +338,64 @@
       destroy() {
         element.removeEventListener('mouseenter', calculate);
         element.removeEventListener('touchstart', calculate);
+      }
+    };
+  }
+
+  // Auto (per-line) mode: each line renders as an inline-block kept in normal
+  // flow, so DOM text scanners (Yomitan/Migaku) read the whole block as one
+  // continuous run — a per-line `position: absolute` would inject a hard break
+  // at every line and split words/sentences across lines (issue #254). We then
+  // translate each line onto its lines_coords quad. Measurement is required:
+  // an inline element's natural flow position is only knowable after layout.
+  //
+  // offsetLeft/offsetTop are measured against the .textBox (the span's
+  // offsetParent, since the box is position:absolute) and are in image px —
+  // zoom is applied as an ancestor transform, so this coordinate space is
+  // zoom-invariant. Both offsetLeft and the target `left` reference the box's
+  // padding edge, so `target - offsetLeft` is the exact translate.
+  function positionPerLine(container: HTMLDivElement, _signature: string) {
+    let raf = 0;
+
+    const apply = () => {
+      const spans = container.querySelectorAll<HTMLElement>('.positionedLine');
+      if (spans.length === 0) return;
+      // display:none box (OCR hidden) → no offsetParent; measurement would read
+      // 0. Skip and re-run on reveal (mouseenter/touchstart) or update.
+      if (spans[0].offsetParent === null) return;
+
+      // Read every natural origin first (one layout), then write every
+      // transform (compositor-only, no reflow) — avoids layout thrash.
+      const naturals: Array<[number, number]> = [];
+      for (const span of spans) naturals.push([span.offsetLeft, span.offsetTop]);
+
+      spans.forEach((span, i) => {
+        const targetLeft = Number(span.dataset.targetLeft);
+        const targetTop = Number(span.dataset.targetTop);
+        if (!Number.isFinite(targetLeft) || !Number.isFinite(targetTop)) return;
+        span.style.transform = `translate(${targetLeft - naturals[i][0]}px, ${targetTop - naturals[i][1]}px)`;
+      });
+    };
+
+    const schedule = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(apply);
+    };
+
+    schedule();
+    // Fonts change glyph advance → re-measure once the real font is ready.
+    document.fonts?.ready?.then(schedule);
+    // Box may have been display:none at mount; catch first reveal.
+    container.addEventListener('mouseenter', schedule);
+    container.addEventListener('touchstart', schedule, { passive: true });
+
+    return {
+      // _signature changes on displayOCR toggle or font-size setting change.
+      update: schedule,
+      destroy() {
+        cancelAnimationFrame(raf);
+        container.removeEventListener('mouseenter', schedule);
+        container.removeEventListener('touchstart', schedule);
       }
     };
   }
@@ -530,15 +609,18 @@
   }
 </script>
 
-{#each textBoxes as { fontSize, height, left, lines, top, width, writingMode, useMinDimensions, isOriginalMode, blockIndex }, index (`${volumeUuid}-textBox-${index}`)}
+{#each textBoxes as { fontSize, height, left, lines, top, width, writingMode, useMinDimensions, isOriginalMode, lineLayouts, blockIndex }, index (`${volumeUuid}-textBox-${index}`)}
+  {@const usePerLine = lineLayouts !== null}
   <div
     use:handleTextBoxHover={[index, fontSize]}
+    use:positionPerLine={`${display}|${$settings.fontSize}`}
     class="textBox"
     class:originalMode={isOriginalMode}
+    class:perLine={usePerLine}
     class:forceVisible
     class:alwaysVisible={alwaysShowOCR}
-    style:width={isOriginalMode ? undefined : useMinDimensions ? undefined : width}
-    style:height={isOriginalMode ? undefined : useMinDimensions ? undefined : height}
+    style:width={usePerLine ? width : isOriginalMode || useMinDimensions ? undefined : width}
+    style:height={usePerLine ? height : isOriginalMode || useMinDimensions ? undefined : height}
     style:min-width={isOriginalMode ? undefined : useMinDimensions ? width : undefined}
     style:min-height={isOriginalMode ? undefined : useMinDimensions ? height : undefined}
     style:left
@@ -555,7 +637,23 @@
     {contenteditable}
   >
     <p>
-      {#each lines as line}<span class="ocr-line">{line}</span>{/each}
+      {#if usePerLine && lineLayouts}
+        {#each lines as line, lineIndex}{#if !lineLayouts[lineIndex].hidden}<span
+              class="ocr-line positionedLine"
+              class:wrappedLine={lineLayouts[lineIndex].wrap}
+              data-target-left={lineLayouts[lineIndex].left}
+              data-target-top={lineLayouts[lineIndex].top}
+              style:width={lineLayouts[lineIndex].wrap
+                ? `${lineLayouts[lineIndex].width}px`
+                : undefined}
+              style:height={lineLayouts[lineIndex].wrap
+                ? `${lineLayouts[lineIndex].height}px`
+                : undefined}
+              style:font-size={`${lineLayouts[lineIndex].fontSize}px`}>{line}</span
+            >{/if}{/each}
+      {:else}
+        {#each lines as line}<span class="ocr-line">{line}</span>{/each}
+      {/if}
     </p>
   </div>
 {/each}
@@ -629,10 +727,35 @@
     white-space: nowrap;
   }
 
-  /* Use CSS-generated newline instead of <br/> so DOM walkers
-     (Migaku/Yomitan) see one continuous text node per textbox
-     and don't treat line breaks as sentence boundaries. */
-  .textBox .ocr-line:not(:last-child)::after {
+  /* Auto mode with lines_coords: each line is placed at its detected quad with
+     a geometry-derived font size. The line stays inline-block IN NORMAL FLOW
+     (not position:absolute) so DOM text scanners read the block as one
+     continuous run (#254); a measurement action then translates it onto the
+     quad. line-height 1 keeps the column/row no thicker than the font size;
+     letter-spacing 0 because the print's tracking is already baked into the
+     quad length the size was fitted to. */
+  .textBox.perLine .ocr-line.positionedLine {
+    display: inline-block;
+    line-height: 1;
+    letter-spacing: 0;
+    white-space: nowrap;
+    /* transform (translate onto the quad) is set by positionPerLine */
+  }
+
+  /* A quad that captured multiple print columns (base text + furigana):
+     the text flows inside the full quad bbox at the block's reference size,
+     wrapping into columns/rows instead of shrinking onto one line. */
+  .textBox.perLine .ocr-line.positionedLine.wrappedLine {
+    white-space: normal;
+    line-break: anywhere;
+  }
+
+  /* Legacy/manual modes: use a CSS-generated newline instead of <br/> so DOM
+     walkers (Migaku/Yomitan) see one continuous text run per textbox and don't
+     treat line breaks as sentence boundaries. Per-line (auto) mode positions
+     each line explicitly and needs no visible newline; the generated content
+     was never seen by Yomitan anyway. */
+  .textBox:not(.perLine) .ocr-line:not(:last-child)::after {
     content: '\A';
     white-space: pre;
   }

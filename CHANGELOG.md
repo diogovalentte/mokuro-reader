@@ -1,5 +1,66 @@
 # Changelog
 
+## [1.8.2] - 2026-07-09
+
+### Fixed
+
+- Fixed Yomitan sentence capture stopping at OCR line breaks (#254)
+
+### Changed
+
+- Refreshed cloud provider descriptions (Drive quota and auto re-auth)
+
+## [1.8.1] - 2026-07-06
+
+### Fixed
+
+- Fixed MEGA sync repeatedly failing with 'not found' errors
+
+## [1.8.0] - 2026-07-05
+
+### Added
+
+- New Local Folder provider: Chromium-only bulk export, or direct access to sync-only files (#250)
+- OneDrive added as a cloud sync provider (#250)
+- Paged mode pages can now have a gap between them (#234)
+- Ctrl/Cmd+Shift+Scroll live-adjusts the page gap (#234)
+
+### Fixed
+
+- Quick Actions button's solid background restored (#249)
+- Fixed a bug where reconnecting Google Drive could revert synced progress
+- File type matching on Drive and MEGA is now case-insensitive
+- Fixed overlapping text lines in auto mode
+
+### Changed
+
+- Expired Google Drive sessions now show a Reconnect button
+- Google Drive reconnect works reliably everywhere now, no popup setup needed
+- WebDAV now mentions Mokuro-Bunko server compatibility
+
+## [1.7.5] - 2026-07-05
+
+### Added
+
+- Blocks series rename when cloud has undownloaded volumes (#233)
+- Confirms before overwriting an existing cloud backup (#233)
+- Sanitizes titles for filesystem/cloud safety on save (#233)
+- Old cloud series folder auto-deleted after rename
+
+### Fixed
+
+- Text placement significantly improved in auto mode (#243)
+- Cloud-backed volume renames no longer revert after sync (#233)
+- Series rename now updates every volume's cloud metadata (#233)
+- Cloud-downloaded titles no longer mangled by sanitization (#233)
+- MEGA library now updates live after cloud renames (#233)
+- Duplicate OCR blocks deduplicated across all font modes (#243)
+
+### Changed
+
+- Auto font-size now positions each line by its own quad (#243)
+- Series rename now applies per-volume, reporting partial failures (#233)
+
 ## [1.7.4] - 2026-06-30
 
 ### Added

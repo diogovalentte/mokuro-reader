@@ -123,8 +123,18 @@ describe('auto-download state', () => {
     ).toEqual([]);
   });
 
-  it('enabled with no listing yet: the first non-empty listing is the baseline', () => {
+  it('enabled on a connected but empty cloud folder: the first volume is downloaded', () => {
     setAutoDownloadNewVolumes(true, new Map());
+
+    expect(
+      selectAutoDownloads([placeholder('A/Ch 1.cbz')], listing('A/Ch 1.cbz')).map(
+        (v) => v.cloudPath
+      )
+    ).toEqual(['A/Ch 1.cbz']);
+  });
+
+  it('enabled with no listing yet: the first non-empty listing is the baseline', () => {
+    setAutoDownloadNewVolumes(true);
     expect(selectAutoDownloads([], new Map())).toEqual([]);
 
     const first = listing('A/Ch 1.cbz');

@@ -6,7 +6,12 @@
 
   function onToggle(event: Event) {
     const enabled = (event.currentTarget as HTMLInputElement).checked;
-    setAutoDownloadNewVolumes(enabled, get(unifiedCloudManager.cloudFiles));
+    const listingLoaded =
+      unifiedCloudManager.getActiveProvider() !== null && !get(unifiedCloudManager.isFetching);
+    setAutoDownloadNewVolumes(
+      enabled,
+      listingLoaded ? get(unifiedCloudManager.cloudFiles) : undefined
+    );
   }
 </script>
 

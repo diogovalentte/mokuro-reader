@@ -118,8 +118,9 @@ export function diffNewPlaceholders(
 
 /**
  * Turn the setting on or off. Turning it on marks everything in `listing` as
- * seen and downloads nothing. With no listing yet (provider not connected or
- * still loading), the first non-empty listing becomes that baseline instead.
+ * seen and downloads nothing. A loaded listing is the baseline even when empty
+ * (a connected, empty cloud folder). Without one (`undefined`: provider not
+ * connected or still loading), the first non-empty listing becomes the baseline.
  */
 export function setAutoDownloadNewVolumes(enabled: boolean, listing?: Listing): void {
   writeFlag(ENABLED_KEY, enabled);
@@ -129,11 +130,11 @@ export function setAutoDownloadNewVolumes(enabled: boolean, listing?: Listing): 
     return;
   }
 
-  const keys = listing ? listingKeys(listing) : [];
-  if (keys.length === 0) {
+  if (!listing) {
     writeFlag(BASELINE_PENDING_KEY, true);
     return;
   }
+  const keys = listingKeys(listing);
   const seen = readSeen();
   for (const key of keys) seen.add(key);
   writeSeen(seen);

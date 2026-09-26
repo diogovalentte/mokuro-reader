@@ -24,6 +24,7 @@
   import { isFilesystemProviderSupported } from '$lib/util/sync/providers/filesystem/feature-detect';
   import { PROVIDER_LABELS } from '$lib/util/sync/provider-display';
   import { reconcileMissingMetadataFiles } from '$lib/metadata/series-file-sync';
+  import AutoDownloadToggle from '$lib/components/AutoDownloadToggle.svelte';
 
   const CLOUD_ROOT_FOLDER = 'mokuro-reader';
 
@@ -1015,6 +1016,8 @@
                 </div>
               {/if}
             </div>
+
+            <AutoDownloadToggle />
 
             <!-- Auto re-authenticate toggle (Google Drive only) -->
             {#if currentProvider === 'google-drive'}

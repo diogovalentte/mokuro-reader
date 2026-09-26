@@ -53,7 +53,6 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.tag }}
 
       - name: Create payload file
-        if: always()
         id: create-payload
         run: |
           REPO_FULL="${{ github.repository }}"

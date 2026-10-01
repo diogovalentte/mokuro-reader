@@ -31,7 +31,11 @@
   import { checkMigrationNeeded } from '$lib/catalog/migration';
   import { startThumbnailProcessing } from '$lib/catalog/db';
   import { initGoalsLifecycle } from '$lib/goals';
+  import { cleanupLegacyEngineCredentials } from '$lib/settings/engine-credentials-cleanup';
   import { get } from 'svelte/store';
+  import { loadWebFonts } from '$lib/util/web-fonts';
+
+  if (browser) void loadWebFonts();
 
   // Migration state
   let migrationNeeded: 1 | 2 | null = $state(null);
@@ -90,6 +94,9 @@
       }
     }
 
+    // One-time sweep of the removed experimental engines' API keys
+    cleanupLegacyEngineCredentials();
+
     // Start background thumbnail generation once startup checks are complete
     startThumbnailProcessing();
 
@@ -99,9 +106,18 @@
       .catch((error) => console.debug('[cloud-covers] prune skipped:', error));
 
     // Fire and forget - don't block app initialization
-    initializeProviders().catch((error) => {
-      console.error('Failed to initialize providers:', error);
-    });
+    initializeProviders()
+      .catch((error) => {
+        console.error('Failed to initialize providers:', error);
+      })
+      // Server OCR queues (one poller per bunko server): one look now, then
+      // only while a volume of interest is pending. After the providers, so
+      // the connected server is known and can authenticate.
+      .finally(() => {
+        void import('$lib/catalog/server-ocr-queue')
+          .then((m) => m.startServerOcrQueue())
+          .catch((error) => console.debug('[OCR queue] start skipped:', error));
+      });
 
     // Initialize file handler for PWA file associations
     initFileHandler();

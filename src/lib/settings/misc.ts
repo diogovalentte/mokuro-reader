@@ -21,7 +21,13 @@ export type MiscSettings = {
   deviceRamGB: 4 | 8 | 16 | 32;
   turboMode: boolean;
   gdriveAutoReAuth: boolean;
+  /** Where the OCR edit toolbar docks; a top dock hides the top of the page.
+   * Top and left only for now (right/bottom collide with the quick actions
+   * menu). */
+  editToolbarDock: EditToolbarDock;
 };
+
+export type EditToolbarDock = 'top' | 'left';
 
 export type MiscSettingsKey = keyof MiscSettings;
 
@@ -49,7 +55,8 @@ const defaultSettings: MiscSettings = {
   progressResetDay: 1, // Monday
   deviceRamGB: getDefaultRamSetting(),
   turboMode: false, // Default to single-operation mode (patient users)
-  gdriveAutoReAuth: true // Keep users synced during long reading sessions
+  gdriveAutoReAuth: true, // Keep users synced during long reading sessions
+  editToolbarDock: 'top'
 };
 
 /**

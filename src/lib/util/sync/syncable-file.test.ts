@@ -4,7 +4,11 @@ import {
   isSyncableFile,
   isCbzFile,
   isSidecarFile,
-  isRootConfigFile
+  isRootConfigFile,
+  splitLayerSidecarName,
+  classifyMokuroSidecar,
+  layerSidecarName,
+  cbzStemsOf
 } from './syncable-file';
 
 describe('syncable-file', () => {
@@ -163,5 +167,66 @@ describe('series-metadata.json stays retired', () => {
       .filter(({ text }) => text.includes(symbol))
       .map(({ path }) => path);
     expect(offenders).toEqual([]);
+  });
+
+  describe('layer sidecars', () => {
+    const stems = cbzStemsOf(['Vol 1.cbz', 'Vol 1.5.cbz', 'Other.webp']);
+
+    it('classifies by archive presence: primary, layer, orphan', () => {
+      expect(classifyMokuroSidecar('Vol 1.mokuro', stems)).toEqual({
+        kind: 'primary',
+        stem: 'Vol 1',
+        gz: false
+      });
+      expect(classifyMokuroSidecar('Vol 1.paddle-manga.mokuro', stems)).toEqual({
+        kind: 'layer',
+        stem: 'Vol 1',
+        layerId: 'paddle-manga',
+        gz: false
+      });
+      expect(classifyMokuroSidecar('Vol 1.tr-en.mokuro.gz', stems)).toEqual({
+        kind: 'layer',
+        stem: 'Vol 1',
+        layerId: 'tr-en',
+        gz: true
+      });
+      expect(classifyMokuroSidecar('Vol 9.gcv.mokuro', stems)).toEqual({ kind: 'orphan' });
+      expect(classifyMokuroSidecar('Vol 9.mokuro', stems)).toEqual({ kind: 'orphan' });
+      expect(classifyMokuroSidecar('Vol 1.cbz', stems)).toEqual({ kind: 'orphan' });
+    });
+
+    it('a dotted title is the primary of its own archive, and a layer only without one', () => {
+      expect(classifyMokuroSidecar('Vol 1.5.mokuro', stems)).toEqual({
+        kind: 'primary',
+        stem: 'Vol 1.5',
+        gz: false
+      });
+      expect(classifyMokuroSidecar('Vol 1.5.mokuro', cbzStemsOf(['Vol 1.cbz']))).toEqual({
+        kind: 'layer',
+        stem: 'Vol 1',
+        layerId: '5',
+        gz: false
+      });
+    });
+
+    it('an invalid id is never a layer', () => {
+      expect(classifyMokuroSidecar('Vol 1.Bad_Id.mokuro', stems)).toEqual({ kind: 'orphan' });
+      expect(splitLayerSidecarName('Vol 1.Bad_Id.mokuro')).toBeNull();
+      expect(splitLayerSidecarName('Vol 1.mokuro')).toBeNull();
+      expect(splitLayerSidecarName('.gcv.mokuro')).toBeNull();
+    });
+
+    it('splits a standalone name and round-trips the export name', () => {
+      expect(splitLayerSidecarName('Vol 1.gcv-2.mokuro.gz')).toEqual({
+        stem: 'Vol 1',
+        layerId: 'gcv-2',
+        gz: true
+      });
+      const name = layerSidecarName('Vol 1', 'gcv');
+      expect(name).toBe('Vol 1.gcv.mokuro');
+      expect(splitLayerSidecarName(name)).toEqual({ stem: 'Vol 1', layerId: 'gcv', gz: false });
+      // Case-folded id, stem kept verbatim.
+      expect(splitLayerSidecarName('Vol 1.GCV.mokuro')?.layerId).toBe('gcv');
+    });
   });
 });

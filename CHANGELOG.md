@@ -4,44 +4,42 @@
 
 ### Added
 
-- **Progress tracker** — yearly goal, daily or weekly page targets, volume deadlines (#275, @ChristopherFritz)
-- Tracker lists what you're reading, what's next, and what you finished
-- Goals, deadlines and finish dates sync across devices
-- **OCR editor** — press E to fix text, move, resize or redraw lines
-- Editor undo, redo, and revert to the original OCR
-- "Edit this text" in the text box menu opens the editor there
-- **OCR layers** — keep alternate OCR per volume; L switches, promote or export any
-- Layers sync with your cloud, and mokuro-bunko's OCR generations arrive as layers
-- Backups and exports carry a volume's layers
-- **Automatic OCR upgrades** — newer server OCR replaces old in the background; your edits stay
-- mokuro-bunko volume cards show pending server OCR and when it should finish
-- mokuro-bunko sign-in uses a token instead of sending your password every request
-- mokuro-bunko catalog links bring the volume's OCR layers and cover along
-- Failed uploads stay marked on the volume, with a Retry button
+- **Progress tracker** — yearly goal, daily or weekly targets, deadlines (#275, @ChristopherFritz)
+- See what you're reading, what's next, and what you've finished
+- Goals and deadlines follow you to every device
+- **Fix OCR mistakes yourself** — press E to edit, move or redraw text
+- Undo, redo, or go back to the original text anytime
+- Right-click any text box and choose "Edit this text"
+- **Multiple OCR versions per volume** — press L to switch between them
+- OCR versions sync to your cloud and ride along in backups
+- **Better OCR arrives automatically** — re-OCR'd volumes update themselves; your fixes stay
+- mokuro-bunko: see which volumes await OCR and when they'll be ready
+- mokuro-bunko: stays signed in without resending your password
+- mokuro-bunko: shared links bring the cover and every OCR version
 
 ### Changed
 
-- Text lines sit on an even character grid; rotated lines follow the page
-- Continuous mode only renders pages near the screen
-- Volumes open in place instead of animating to the page
-- Interrupted WebDAV volume uploads retry automatically
-- Uploads to mokuro-bunko are checked on arrival and retried if damaged
-- mokuro-bunko accounts without upload or rename rights skip those actions with a clear reason
-- Reading stats fill in after every sync, not on catalog visits (#274)
-- Covers for read volumes reuse the catalog's cached copy (#274)
+- Text lines up more evenly, and slanted text follows the page
+- Continuous scroll is much faster on long volumes
+- Volumes open right on your page, without scrolling there
+- Interrupted uploads to WebDAV servers retry on their own
+- mokuro-bunko checks every upload and resends damaged ones
+- mokuro-bunko explains why your account can't upload or rename
+- Reading stats and history stay current after every sync
+- Covers load from cache instead of downloading again
 
 ### Fixed
 
-- No black flash when opening a volume or rotating the device
-- Volumes no longer load their images twice on open
-- Deleting a series reports how many volumes went, not files
+- No black flash when opening a volume or turning your device
+- Volumes open faster
+- Failed uploads no longer go unnoticed; retry them from the volume
+- Deleting a series now counts volumes, not files
 - Original mode keeps text inside its box
-- Notices no longer hide off-screen or under the progress tray
-- Upload failures no longer vanish behind success notices
-- Renamed cloud series folders no longer vanish from the catalog (#278)
-- Exports with embedded sidecars no longer download them twice (#281)
-- mokuro-bunko under a sub-path now delivers server OCR
-- mokuro-bunko uploaders can delete series they own
+- Messages no longer appear off-screen or behind the progress bar
+- Renaming a series folder in your cloud no longer hides it (#278)
+- Exports no longer download duplicate files (#281)
+- mokuro-bunko behind a custom path now gets server OCR
+- mokuro-bunko uploaders can delete their own series
 
 ## [1.9.1] - 2026-08-30
 

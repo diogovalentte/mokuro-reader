@@ -1,9 +1,10 @@
 # Changelog
 
-## [1.10.0] - 2026-10-01
+## [1.10.0] - 2026-10-02
 
 ### Added
 
+- **Progress tracker** — reading goals, deadlines and finished volumes (#275, @ChristopherFritz)
 - **OCR editor** — press E to fix text, move, resize or redraw lines
 - **OCR layers** — keep alternate OCR per volume; L switches, promote or export any
 - Layers sync with your cloud, and mokuro-bunko's OCR generations arrive as layers
@@ -24,7 +25,9 @@
 - No black flash when opening a volume or rotating the device
 - Deleting a series reports how many volumes went, not files
 - Original mode keeps text inside its box
-- Notices no longer hide under the progress tray
+- Notices no longer hide off-screen or under the progress tray
+- Renamed cloud series folders no longer vanish from the catalog (#278)
+- Exports with embedded sidecars no longer download them twice (#281)
 
 ## [1.9.1] - 2026-08-30
 

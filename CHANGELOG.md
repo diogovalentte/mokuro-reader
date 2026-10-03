@@ -20,7 +20,7 @@
 ### Changed
 
 - Text lines up more evenly, and slanted text follows the page
-- Continuous scroll is much faster on long volumes
+- Continuous scroll loads much faster on long volumes
 - Volumes open right on your page, without scrolling there
 - Interrupted uploads to WebDAV servers retry on their own
 - mokuro-bunko checks every upload and resends damaged ones

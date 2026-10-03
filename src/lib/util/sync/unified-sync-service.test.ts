@@ -1179,3 +1179,48 @@ describe('goals.json', () => {
     expect(cache.add).toHaveBeenCalledWith('goals.json', expect.anything());
   });
 });
+
+describe('completedAt across the volume merge', () => {
+  const STAMP = '2026-03-01T00:00:00.000Z';
+
+  it('a completed winner without a stamp inherits the losing side’s', () => {
+    // An older client turned a page in a finished volume: newer, but stampless.
+    const local = {
+      'vol-1': { completed: true, completedAt: STAMP, lastProgressUpdate: STAMP }
+    };
+    const cloud = {
+      'vol-1': { completed: true, lastProgressUpdate: '2026-04-01T00:00:00.000Z' }
+    };
+
+    const merged = svc.mergeVolumeData(local, cloud);
+
+    expect(merged['vol-1'].lastProgressUpdate).toBe('2026-04-01T00:00:00.000Z');
+    expect(merged['vol-1'].completedAt).toBe(STAMP);
+  });
+
+  it('an un-read winner does not inherit a stamp', () => {
+    const local = {
+      'vol-1': { completed: true, completedAt: STAMP, lastProgressUpdate: STAMP }
+    };
+    const cloud = {
+      'vol-1': { completed: false, lastProgressUpdate: '2026-04-01T00:00:00.000Z' }
+    };
+
+    expect(svc.mergeVolumeData(local, cloud)['vol-1'].completedAt).toBeUndefined();
+  });
+
+  it("the winner's own stamp stands", () => {
+    const local = {
+      'vol-1': { completed: true, completedAt: STAMP, lastProgressUpdate: STAMP }
+    };
+    const cloud = {
+      'vol-1': {
+        completed: true,
+        completedAt: '2026-04-01T00:00:00.000Z',
+        lastProgressUpdate: '2026-04-01T00:00:00.000Z'
+      }
+    };
+
+    expect(svc.mergeVolumeData(local, cloud)['vol-1'].completedAt).toBe('2026-04-01T00:00:00.000Z');
+  });
+});

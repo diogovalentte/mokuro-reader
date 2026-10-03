@@ -978,7 +978,15 @@ class UnifiedSyncService {
                 ...winner,
                 series_uuid: winner.series_uuid || localVol.series_uuid || cloudVol.series_uuid,
                 series_title: winner.series_title || localVol.series_title || cloudVol.series_title,
-                volume_title: winner.volume_title || localVol.volume_title || cloudVol.volume_title
+                volume_title: winner.volume_title || localVol.volume_title || cloudVol.volume_title,
+                // A completed winner without a stamp (written by a client that
+                // predates `completedAt`, or one that has not backfilled yet)
+                // inherits the other side's: dropping it would re-date the
+                // completion on every device. A winner that is not completed
+                // was un-read, so there is nothing to carry.
+                completedAt:
+                  winner.completedAt ??
+                  (winner.completed ? (localVol.completedAt ?? cloudVol.completedAt) : undefined)
               }
             })
           )[volumeId];

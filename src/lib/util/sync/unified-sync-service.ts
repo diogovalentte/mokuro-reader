@@ -354,10 +354,16 @@ class UnifiedSyncService {
   }
 
   /**
-   * Convert Blob to JSON object
+   * Convert Blob to JSON object. An empty (or whitespace-only) file parses to
+   * `undefined` — "the cloud holds nothing", like a missing file — so an
+   * interrupted write or a fresh empty account folder cannot abort the whole
+   * sync, and the next upload heals it. A non-empty file that does not parse
+   * still throws: it may be a truncated copy of other devices' progress, and
+   * writing over it would lose what is still recoverable.
    */
   private async blobToJson(blob: Blob): Promise<any> {
     const text = await blob.text();
+    if (text.trim() === '') return undefined;
     return JSON.parse(text);
   }
 
@@ -428,9 +434,10 @@ class UnifiedSyncService {
         // server-side but still present in a stale provider cache — so a
         // not-found copy must not discard the readable copies with it.
         const downloads = await Promise.allSettled(
-          volumeDataFiles.map(async (file): Promise<CloudVolumeDataFile> => {
+          volumeDataFiles.map(async (file): Promise<CloudVolumeDataFile | null> => {
             const blob = await provider.downloadFile(file);
             const data = await this.blobToJson(blob);
+            if (data === undefined) return null;
             return {
               volumes: parseVolumesFromJson(JSON.stringify(data)),
               series: parseSeriesSection(data?.[SERIES_SECTION_KEY]),
@@ -447,16 +454,19 @@ class UnifiedSyncService {
           throw transient.reason;
         }
 
+        // An empty copy holds nothing to merge: left out here, it is deleted by
+        // the sweep below like any other duplicate.
         const readable = downloads
           .map((result, index) => ({ result, index }))
           .filter(
             (
               entry
             ): entry is { result: PromiseFulfilledResult<CloudVolumeDataFile>; index: number } =>
-              entry.result.status === 'fulfilled'
+              entry.result.status === 'fulfilled' && entry.result.value !== null
           );
 
         if (readable.length === 0) {
+          if (downloads.some((result) => result.status === 'fulfilled')) return null;
           // Every copy is a ghost — fall through to the caller's not-found
           // recovery (one cache refresh + retry).
           throw (downloads[0] as PromiseRejectedResult).reason;
@@ -547,6 +557,7 @@ class UnifiedSyncService {
       // Single file - download normally
       const blob = await provider.downloadFile(volumeDataFiles[0]);
       const data = await this.blobToJson(blob);
+      if (data === undefined) return null;
       const rawSeries = data?.[SERIES_SECTION_KEY];
       return {
         volumes: parseVolumesFromJson(JSON.stringify(data)),
@@ -706,7 +717,8 @@ class UnifiedSyncService {
 
     const readable = downloads
       .filter((r): r is PromiseFulfilledResult<unknown> => r.status === 'fulfilled')
-      .map((r) => r.value);
+      .map((r) => r.value)
+      .filter((value) => value !== undefined);
 
     if (readable.length === 0) return null;
 
@@ -835,6 +847,10 @@ class UnifiedSyncService {
       const blob = await provider.downloadFile(profilesFile);
       console.log('⬇️ Downloaded blob, converting to JSON...');
       const json = await this.blobToJson(blob);
+      if (json === undefined) {
+        console.log('📝 profiles.json is empty, treating it as missing');
+        return null;
+      }
       console.log('✅ Successfully parsed profiles JSON:', json);
       return json;
     } catch (error) {

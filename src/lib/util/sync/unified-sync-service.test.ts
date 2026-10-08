@@ -1224,3 +1224,79 @@ describe('completedAt across the volume merge', () => {
     expect(svc.mergeVolumeData(local, cloud)['vol-1'].completedAt).toBe('2026-04-01T00:00:00.000Z');
   });
 });
+
+describe('an empty cloud config file reads as "no data", a corrupt one still fails', () => {
+  const textBlob = (text: string) => ({ text: async () => text }) as unknown as Blob;
+  const local = { 'vol-1': { lastProgressUpdate: '2026-01-02T00:00:00Z', progress: 5 } };
+
+  function syncingProvider(files: Record<string, string>, uploads: Record<string, unknown>) {
+    const meta = (path: string) => ({ ...fileMeta(path), path });
+    getCache.mockReturnValue({
+      getAll: vi.fn((name: string) => (name in files ? [meta(name)] : [])),
+      get: vi.fn((name: string) => (name in files ? meta(name) : null)),
+      add: vi.fn(),
+      fetch: vi.fn(async () => {})
+    });
+    return {
+      type: 'mega',
+      name: 'MEGA',
+      isAuthenticated: () => true,
+      downloadFile: vi.fn(async (file: CloudFileMetadata) => textBlob(files[file.path])),
+      uploadFile: vi.fn(async (path: string, blob: Blob) => {
+        uploads[path] = JSON.parse(await blob.text());
+        return { fileId: path, modifiedTime: '2026-10-08T00:00:00.000Z', size: blob.size };
+      }),
+      deleteFile: vi.fn(async () => {})
+    } as unknown as SyncProvider;
+  }
+
+  beforeEach(() => {
+    setLocalVolumes(local);
+    setSeriesReadingStates({});
+  });
+
+  it.each([
+    ['0 bytes', ''],
+    ['only a newline', '\n']
+  ])('completes the sync and rewrites volume-data.json from local (%s)', async (_label, body) => {
+    const uploads: Record<string, unknown> = {};
+    const provider = syncingProvider(
+      { 'volume-data.json': body, 'profiles.json': body, 'goals.json': body },
+      uploads
+    );
+
+    const result = await unifiedSyncService.syncProvider(provider);
+
+    expect(result.success).toBe(true);
+    expect(uploads['volume-data.json']).toEqual(local);
+  });
+
+  it('still fails on a truncated volume-data.json instead of writing over it', async () => {
+    const uploads: Record<string, unknown> = {};
+    const provider = syncingProvider({ 'volume-data.json': '{"abc' }, uploads);
+
+    await expect(svc.syncVolumeData(provider)).rejects.toThrow(SyntaxError);
+    expect(uploads).toEqual({});
+  });
+
+  it('drops an empty duplicate copy and deletes it in the sweep', async () => {
+    const [empty, good] = [fileMeta('empty'), fileMeta('good')];
+    stubCache([empty, good]);
+    const provider = makeProvider(async (file) =>
+      file.fileId === 'empty' ? textBlob('') : jsonBlob(local)
+    );
+
+    const result = await svc.downloadVolumeDataFile(provider);
+
+    expect(result.volumes).toEqual(local);
+    expect(provider.deleteFile).toHaveBeenCalledTimes(1);
+    expect(provider.deleteFile).toHaveBeenCalledWith(empty);
+  });
+
+  it('reads duplicates that are all empty as no cloud data', async () => {
+    stubCache([fileMeta('a'), fileMeta('b')]);
+    const provider = makeProvider(async () => textBlob(' '));
+
+    await expect(svc.downloadVolumeDataFile(provider)).resolves.toBeNull();
+  });
+});

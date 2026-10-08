@@ -182,6 +182,35 @@ describe('WebDAVProvider login()', () => {
     expect(provider.getStatus().serverCompilesMetadata).toBe(false);
   });
 
+  function allowOnOptions(allow: string) {
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) =>
+      init?.method === 'OPTIONS'
+        ? new Response('', { status: 200, headers: { Allow: allow } })
+        : new Response('', { status: 404 })
+    );
+  }
+
+  it('treats the collection-shaped Allow of Go x/net/webdav (SFTPGo) as writable', async () => {
+    // What drakkan/webdav answers for an existing folder: no PUT, no MKCOL.
+    allowOnOptions('OPTIONS, LOCK, DELETE, PROPPATCH, COPY, MOVE, UNLOCK, PROPFIND');
+    const provider = await freshProvider();
+    identityMock.mockResolvedValue({ kind: 'unsupported' });
+
+    await provider.login({ serverUrl: 'https://host', username: 'u', password: 'pw' });
+
+    expect(provider.isReadOnly).toBe(false);
+  });
+
+  it('still reads an Allow with neither DELETE nor PUT/MKCOL as read-only', async () => {
+    allowOnOptions('OPTIONS, GET, HEAD, PROPFIND');
+    const provider = await freshProvider();
+    identityMock.mockResolvedValue({ kind: 'unsupported' });
+
+    await provider.login({ serverUrl: 'https://host', username: 'u', password: 'pw' });
+
+    expect(provider.isReadOnly).toBe(true);
+  });
+
   it('a server known to be bunko (verified PUTs recorded) stays a non-producer when identity fails', async () => {
     // The identity probe hit a flaky hop; this URL answered X-Mokuro-Put: verified before.
     localStorage.setItem('webdav_put_verified', 'https://host');

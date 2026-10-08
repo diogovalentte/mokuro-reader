@@ -1129,7 +1129,13 @@ export class WebDAVProvider implements SyncProvider {
       const hasDelete = allowedMethods.includes('DELETE');
       const hasMkcol = allowedMethods.includes('MKCOL');
 
-      const hasWrite = hasPut && hasDelete && hasMkcol;
+      // Go's x/net/webdav (SFTPGo, rclone serve webdav, …) answers OPTIONS on
+      // an existing collection without PUT and MKCOL — neither applies to the
+      // collection itself, only to paths inside it — so a folder advertising
+      // DELETE but neither of those is the RFC-shaped answer of a writable
+      // folder, not a read-only one. A real denial still demotes on first write.
+      const collectionShaped = hasDelete && !hasPut && !hasMkcol;
+      const hasWrite = (hasPut && hasDelete && hasMkcol) || collectionShaped;
 
       console.log(
         `[WebDAV] Permissions: PUT=${hasPut}, DELETE=${hasDelete}, MKCOL=${hasMkcol}, hasWrite=${hasWrite}`

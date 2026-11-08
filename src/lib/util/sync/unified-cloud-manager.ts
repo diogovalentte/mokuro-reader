@@ -449,6 +449,9 @@ class UnifiedCloudManager {
       this.startQuickSync();
       await cacheManager.fetchAll();
     }
+    void import('./auto-download')
+      .then((m) => m.onCloudListingSettled())
+      .catch((error) => console.warn('Auto-download check failed:', error));
     if (options?.refreshIndexes === false) return;
     this.refreshSeriesIndexesInBackground();
   }

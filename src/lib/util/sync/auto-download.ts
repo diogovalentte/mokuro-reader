@@ -2,6 +2,7 @@ import { browser } from '$app/environment';
 import { get, writable, type Readable } from 'svelte/store';
 import type { VolumeMetadata } from '$lib/types';
 import { normalizeVolumeTitleKey } from '$lib/metadata/series-key';
+import { needsDownload } from '$lib/catalog/volume-state';
 
 /**
  * Auto-download of NEW cloud volumes, opt-in and per device.
@@ -10,8 +11,16 @@ import { normalizeVolumeTitleKey } from '$lib/metadata/series-key';
  * the setting was turned on. The seen set holds every archive of every listing
  * (not only the placeholders), so a volume that was installed here and then
  * deleted completely — which turns it back into a placeholder — is never
- * re-downloaded behind the user's back. A volume merely removed from the
- * device is a metadata-only row, never a placeholder, so it never qualifies.
+ * re-downloaded behind the user's back.
+ *
+ * A candidate is anything that needs a download and has a cloud path: a
+ * placeholder, or a metadata-only row decorated with its cloud file. The
+ * catalog grid materializes a metadata-only row for every visible placeholder
+ * without a cover sidecar (`cover-service.ts` -> `materializeSeriesVolumes`),
+ * and a freshly published volume never has one, so a new volume is often
+ * already a metadata-only row when this runs. A volume the user removed from
+ * the device is also a metadata-only row, but it was installed and therefore
+ * listed before, so the seen set keeps it out.
  *
  * Identity is the folded cloud path `<series>/<volume>` (same per-segment fold
  * the catalog uses to match a local row against a `.cbz`): it is the only key
@@ -97,17 +106,18 @@ export function listingKeys(listing: Listing): string[] {
 }
 
 /**
- * The placeholders not yet seen. Pure: only true cloud placeholders with a
- * cloud path qualify, each key at most once.
+ * The candidates not yet seen. Pure: only volumes that need a download
+ * (placeholder or metadata-only row) and carry a cloud path qualify, each key
+ * at most once.
  */
-export function diffNewPlaceholders(
-  placeholders: VolumeMetadata[],
+export function diffNewCloudVolumes(
+  candidates: VolumeMetadata[],
   seen: ReadonlySet<string>
 ): VolumeMetadata[] {
   const picked = new Set<string>();
   const fresh: VolumeMetadata[] = [];
-  for (const volume of placeholders) {
-    if (volume.isPlaceholder !== true || !volume.cloudPath) continue;
+  for (const volume of candidates) {
+    if (!needsDownload(volume) || !volume.cloudPath) continue;
     const key = cloudVolumeKey(volume.cloudPath);
     if (!key || seen.has(key) || picked.has(key)) continue;
     picked.add(key);
@@ -147,7 +157,7 @@ export function setAutoDownloadNewVolumes(enabled: boolean, listing?: Listing): 
  * is the pending baseline.
  */
 export function selectAutoDownloads(
-  placeholders: VolumeMetadata[],
+  candidates: VolumeMetadata[],
   listing: Listing
 ): VolumeMetadata[] {
   if (!readFlag(ENABLED_KEY)) return [];
@@ -156,7 +166,7 @@ export function selectAutoDownloads(
 
   const seen = readSeen();
   const baseline = readFlag(BASELINE_PENDING_KEY);
-  const fresh = baseline ? [] : diffNewPlaceholders(placeholders, seen);
+  const fresh = baseline ? [] : diffNewCloudVolumes(candidates, seen);
 
   const before = seen.size;
   for (const key of keys) seen.add(key);
@@ -184,13 +194,24 @@ export function onCloudListingSettled(): Promise<void> {
 async function runAfterListing(): Promise<void> {
   if (!get(enabledStore)) return;
 
-  const [{ unifiedCloudManager }, { db }, { generatePlaceholders }, { listSeriesIndexes }] =
-    await Promise.all([
-      import('./unified-cloud-manager'),
-      import('$lib/catalog/db'),
-      import('$lib/catalog/placeholders'),
-      import('$lib/metadata/series-index')
-    ]);
+  const [
+    { unifiedCloudManager },
+    { db },
+    {
+      generatePlaceholders,
+      indexCloudFilesByPath,
+      indexCloudFilesByUuid,
+      cloudFieldsForRemovedVolume
+    },
+    { listSeriesIndexes },
+    { isMetadataOnly }
+  ] = await Promise.all([
+    import('./unified-cloud-manager'),
+    import('$lib/catalog/db'),
+    import('$lib/catalog/placeholders'),
+    import('$lib/metadata/series-index'),
+    import('$lib/catalog/volume-state')
+  ]);
 
   const listing = get(unifiedCloudManager.cloudFiles);
   if (listing.size === 0) return;
@@ -199,7 +220,18 @@ async function runAfterListing(): Promise<void> {
   const indexMap = new Map(indexes.map((record) => [record.series_key, record]));
   const placeholders = generatePlaceholders(listing, localVolumes, indexMap);
 
-  const toQueue = selectAutoDownloads(placeholders, listing);
+  // Same decoration the catalog gives a metadata-only row, so the download
+  // queue has a cloud file to fetch it from.
+  const byPath = indexCloudFilesByPath(listing);
+  const byUuid = indexCloudFilesByUuid(listing, indexMap);
+  const metadataOnly: VolumeMetadata[] = [];
+  for (const volume of localVolumes) {
+    if (!isMetadataOnly(volume)) continue;
+    const cloudFields = cloudFieldsForRemovedVolume(byPath, volume, undefined, byUuid);
+    if (cloudFields) metadataOnly.push({ ...volume, ...cloudFields });
+  }
+
+  const toQueue = selectAutoDownloads([...placeholders, ...metadataOnly], listing);
   if (toQueue.length === 0) return;
 
   console.log(`[AutoDownload] Queueing ${toQueue.length} new cloud volume(s)`);

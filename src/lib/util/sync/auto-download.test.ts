@@ -4,7 +4,7 @@ import type { VolumeMetadata } from '$lib/types';
 import {
   autoDownloadNewVolumes,
   cloudVolumeKey,
-  diffNewPlaceholders,
+  diffNewCloudVolumes,
   selectAutoDownloads,
   setAutoDownloadNewVolumes
 } from './auto-download';
@@ -50,10 +50,10 @@ describe('cloudVolumeKey', () => {
   });
 });
 
-describe('diffNewPlaceholders', () => {
+describe('diffNewCloudVolumes', () => {
   it('returns only placeholders whose key is not seen', () => {
     const seen = new Set([cloudVolumeKey('A/Ch 1.cbz')]);
-    const result = diffNewPlaceholders(
+    const result = diffNewCloudVolumes(
       [placeholder('A/Ch 1.cbz'), placeholder('A/Ch 2.cbz'), placeholder('B/Ch 1.cbz')],
       seen
     );
@@ -62,13 +62,13 @@ describe('diffNewPlaceholders', () => {
 
   it('matches seen keys regardless of casing', () => {
     const seen = new Set([cloudVolumeKey('a/ch 1.cbz')]);
-    expect(diffNewPlaceholders([placeholder('A/Ch 1.cbz')], seen)).toEqual([]);
+    expect(diffNewCloudVolumes([placeholder('A/Ch 1.cbz')], seen)).toEqual([]);
   });
 
-  it('skips non-placeholder rows, rows without a cloud path, and duplicates', () => {
-    const result = diffNewPlaceholders(
+  it('skips installed rows, rows without a cloud path, and duplicates', () => {
+    const result = diffNewCloudVolumes(
       [
-        placeholder('A/Ch 1.cbz', { isPlaceholder: undefined, metadata_only: true }),
+        placeholder('A/Ch 1.cbz', { isPlaceholder: undefined }),
         placeholder('A/Ch 2.cbz', { cloudPath: undefined }),
         placeholder('A/Ch 3.cbz'),
         placeholder('a/ch 3.cbz', { volume_uuid: 'other' })
@@ -76,6 +76,11 @@ describe('diffNewPlaceholders', () => {
       new Set()
     );
     expect(result.map((v) => v.cloudPath)).toEqual(['A/Ch 3.cbz']);
+  });
+
+  it('takes a metadata-only row with a cloud path (the catalog materialized it)', () => {
+    const row = placeholder('A/Ch 1.cbz', { isPlaceholder: undefined, metadata_only: true });
+    expect(diffNewCloudVolumes([row], new Set()).map((v) => v.cloudPath)).toEqual(['A/Ch 1.cbz']);
   });
 });
 
@@ -121,6 +126,12 @@ describe('auto-download state', () => {
     expect(
       selectAutoDownloads([placeholder('A/Ch 2.cbz')], listing('A/Ch 1.cbz', 'A/Ch 2.cbz'))
     ).toEqual([]);
+  });
+
+  it('never re-queues a volume removed from the device (metadata-only row, already seen)', () => {
+    setAutoDownloadNewVolumes(true, listing('A/Ch 1.cbz'));
+    const removed = placeholder('A/Ch 1.cbz', { isPlaceholder: undefined, metadata_only: true });
+    expect(selectAutoDownloads([removed], listing('A/Ch 1.cbz'))).toEqual([]);
   });
 
   it('enabled on a connected but empty cloud folder: the first volume is downloaded', () => {
